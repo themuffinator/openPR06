@@ -2048,8 +2048,13 @@ void idGameLocal::CacheDictionaryMedia( const idDict *dict ) {
 			if ( declManager->FindType( DECL_MODELDEF, kv->GetValue(), false ) == NULL ) {
 				// precache the render model
 				renderModelManager->FindModel( kv->GetValue() );
-				// precache .cm files only
-				collisionModelManager->LoadModel( kv->GetValue(), true );
+				// precache .cm files only. The load keeps a reference the
+				// entity's clip model does not know about, so give it back.
+				// The model stays resident until the map is purged.
+				idCollisionModel *collisionModel = collisionModelManager->LoadModel( kv->GetValue(), true );
+				if ( collisionModel != NULL ) {
+					collisionModelManager->FreeModel( collisionModel );
+				}
 			}
 		}
 		kv = dict->MatchPrefix( "model", kv );

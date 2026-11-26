@@ -2965,9 +2965,11 @@ the sections above.
   server-details check of C.2, one dedicated server bound to `127.0.0.1:28004`
   and `[::]:28004` came back six times: once on loopback and once per IPv6
   link-local interface (`GetLANServers`' multicast sweep).
-- Startup logs warn about upstream Quake 4 front-end files
+- A Prey launch used to warn about upstream Quake 4 front-end files
   (`guis/arena_menu.gui`, `arena/openq4_campaign.cfg`,
-  `gfx/guis/mainmenu/level_edge_fade`) that do not exist in Prey.
+  `gfx/guis/mainmenu/level_edge_fade`, `main_menu_gameplay`, and the chat
+  frame's `tooltip_edge`, `tooltip_mid` and `screen`) that do not exist in
+  Prey. Those lookups are skipped when the files are absent.
 - `content/basepr/pak0` and `pak1` carry 640 GUI scripts and interface images
   (123 scripts, 517 images) that are byte-identical to the retail files,
   besides the 13 modified scripts and 16 new images, 15 of them edge tiles.

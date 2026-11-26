@@ -135,23 +135,36 @@ void hhPlayer::InitWeaponWheel( void ) {
 
 /*
 ================
+hhPlayer::PrecacheWeaponWheelMedia
+
+The retained runtime's name for each picture. Resolved while a level load is
+the precache window: in multiplayer the local player spawns after that window
+closes, and loading them then warns and parses the wheel on the first frames.
+================
+*/
+void hhPlayer::PrecacheWeaponWheelMedia( void ) {
+	static const char *const icons[WHEEL_SLOTS] = {
+		"wrench", "rifle", "sw_crawler", "soulstripper", "autocannon", "acidsprayer", "rocketlauncher"
+	};
+	for ( int i = 0; i < WHEEL_SLOTS; i++ ) {
+		declManager->FindMaterial( va( "_retained/textures/interface/icons/%s", icons[i] ) );
+	}
+}
+
+/*
+================
 hhPlayer::PrecacheWeaponWheel
 
-The local player's wheel and its icons load as the player spawns, inside the
-level load, so its first opening loads nothing.
+The local player's wheel and its icons load as the player spawns. In single
+player that is still inside the level load. In multiplayer the icons were
+already resolved from the map load, and this attaches the local player's copy.
 ================
 */
 void hhPlayer::PrecacheWeaponWheel( void ) {
 	if ( gameLocal.localClientNum < 0 || entityNumber != gameLocal.localClientNum ) {
 		return;
 	}
-	static const char *const icons[WHEEL_SLOTS] = {
-		"wrench", "rifle", "sw_crawler", "soulstripper", "autocannon", "acidsprayer", "rocketlauncher"
-	};
-	for ( int i = 0; i < WHEEL_SLOTS; i++ ) {
-		// the retained runtime's own name for a picture's material
-		declManager->FindMaterial( va( "_retained/textures/interface/icons/%s", icons[i] ) );
-	}
+	PrecacheWeaponWheelMedia();
 	if ( wheelGui == NULL && !wheelGuiFailed ) {
 		wheelGui = uiManager->FindGui( WHEEL_GUI, true, true );
 		wheelGuiFailed = wheelGui == NULL;

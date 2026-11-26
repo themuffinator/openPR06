@@ -1403,7 +1403,11 @@ void idArenaCampaign::Init() {
 		state = new arenaCampaignState_t;
 	}
 
-	state->gui = uiManager->FindGui( "guis/arena_menu.gui", true, false, true );
+	// Prey does not ship the arena browser. FindGui warns when the file is absent.
+	state->gui = NULL;
+	if ( uiManager->CheckGui( "guis/arena_menu.gui" ) ) {
+		state->gui = uiManager->FindGui( "guis/arena_menu.gui", true, false, true );
+	}
 	state->returnGui = NULL;
 	LoadCampaign();
 	// The levelshots, and the retained Arena page's pictures of them, precache
@@ -1543,6 +1547,13 @@ bool idArenaCampaign::LoadCampaign() {
 	state->loaded = false;
 
 	idLexer lexer( LEXFL_ALLOWPATHNAMES | LEXFL_NOSTRINGESCAPECHARS | LEXFL_NOFATALERRORS );
+	// basepr does not ship openQ4's campaign. An absent file is the Prey case,
+	// not a failed load of a campaign that should be there.
+	idFile *campaignFile = fileSystem->OpenFileRead( ARENA_CAMPAIGN_FILE );
+	if ( campaignFile == NULL ) {
+		return false;
+	}
+	fileSystem->CloseFile( campaignFile );
 	if ( !lexer.LoadFile( ARENA_CAMPAIGN_FILE ) ) {
 		common->Warning( "arena campaign: could not load '%s'", ARENA_CAMPAIGN_FILE );
 		return false;

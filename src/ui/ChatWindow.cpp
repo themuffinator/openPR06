@@ -22,6 +22,21 @@ static int lastMessageTime = 0;
 // The Remastered input's history: how many messages back from the newest.
 static int messagesBack = 0;
 
+static const idMaterial *ChatFrameMaterial(const char *imagePath) {
+    // Quake 4's tooltip frame is not in Prey's paks. A missing image warns
+    // from the chat window's constructor on every map load. The draw tints
+    // whatever material it gets, so a solid white keeps the frame.
+    static const char *extensions[] = { ".tga", ".dds", ".jpg" };
+    for (int i = 0; i < 3; ++i) {
+        idStr file = imagePath;
+        file += extensions[i];
+        if (fileSystem->ReadFile(file.c_str(), NULL) != -1) {
+            return declManager->FindMaterial(imagePath);
+        }
+    }
+    return declManager->FindMaterial("_white");
+}
+
 static float ChatLabelScale(idDeviceContext *dc, const char *label, float scale, float width) {
     // Keep localized chrome legible inside deliberately narrow/custom layouts.
     // Conversation and input text retain the player's requested font size.
@@ -44,9 +59,9 @@ idChatWindow::idChatWindow(idDeviceContext *context, idUserInterfaceLocal *owner
     Parse(&parser);
     noEvents = !input;
     if (!input) { flags &= ~WIN_CANFOCUS; }
-    frameEdge = declManager->FindMaterial("gfx/guis/mainmenu/tooltip_edge");
-    frameMid = declManager->FindMaterial("gfx/guis/mainmenu/tooltip_mid");
-    screen = declManager->FindMaterial("gfx/guis/mainmenu/screen");
+    frameEdge = ChatFrameMaterial("gfx/guis/mainmenu/tooltip_edge");
+    frameMid = ChatFrameMaterial("gfx/guis/mainmenu/tooltip_mid");
+    screen = ChatFrameMaterial("gfx/guis/mainmenu/screen");
 }
 
 idChatWindow::~idChatWindow() {
@@ -442,16 +457,22 @@ void idChatWindow::Draw(int time, float x, float y) {
     // Native Quake 4 chamfered frame, with a softer upper edge for older lines.
     const float cap = Min(16.0f, height * 0.5f);
     const idVec4 rail(0.545f, 0.588f, 0.294f, opacity);
-    dc->DrawMaterial(left, top, width, cap, frameEdge, rail);
-    dc->DrawMaterial(left, top + cap, width, height - cap * 2.0f, frameMid, rail);
-    dc->DrawMaterial(left, bottom - cap, width, cap, frameEdge, rail, -1, -1);
+    if (frameEdge != NULL) {
+        dc->DrawMaterial(left, top, width, cap, frameEdge, rail);
+        dc->DrawMaterial(left, bottom - cap, width, cap, frameEdge, rail, -1, -1);
+    }
+    if (frameMid != NULL) {
+        dc->DrawMaterial(left, top + cap, width, height - cap * 2.0f, frameMid, rail);
+    }
     for (float band = 4.0f; band < height - 4.0f;) {
         const bool fadingTop = !editing && count > 2 && band < lineHeight * 2.0f;
         const float fade = fadingTop ? idMath::ClampFloat(0.15f, 1.0f, band / (lineHeight * 2.0f)) : 1.0f;
         const float bandHeight = fadingTop ? Min(4.0f, height - 4 - band) : height - 4 - band;
         dc->PushClipRect(left + 4, top + band, width - 8, bandHeight);
-        dc->DrawMaterial(left + 4, top + 4, width - 8, height - 8, screen,
-            idVec4(0.09f, 0.11f, 0.07f, opacity * fade));
+        if (screen != NULL) {
+            dc->DrawMaterial(left + 4, top + 4, width - 8, height - 8, screen,
+                idVec4(0.09f, 0.11f, 0.07f, opacity * fade));
+        }
         dc->PopClipRect();
         band += bandHeight;
     }

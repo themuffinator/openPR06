@@ -3048,10 +3048,15 @@ void idSessionLocal::SetMainMenuBackgroundMontageGuiVars( void ) {
 		openQ4_UpdateInitialization();
 	}
 
-	idMaterial *maskMaterial = const_cast<idMaterial *>( declManager->FindMaterial( menuBackgroundMask ) );
-	if ( maskMaterial != NULL ) {
-		maskMaterial->EnsureNotPurged();
-		maskMaterial->SetSort( SS_GUI );
+	// Quake 4's montage mask is not in Prey's paks. Loading the material asks
+	// for an image that is not there and warns on every launch.
+	idStr resolvedMask;
+	if ( Session_ResolveImageFilePath( menuBackgroundMask, resolvedMask ) ) {
+		idMaterial *maskMaterial = const_cast<idMaterial *>( declManager->FindMaterial( menuBackgroundMask ) );
+		if ( maskMaterial != NULL ) {
+			maskMaterial->EnsureNotPurged();
+			maskMaterial->SetSort( SS_GUI );
+		}
 	}
 
 	guiMainMenu->SetStateInt( "menu_bg_count", numMenuBackgrounds );
@@ -3091,7 +3096,10 @@ void idSessionLocal::PrimeMainMenuGuiResources( void ) {
 
 	// The GUI buffers this command when it activates. Resolve the shader during
 	// startup/level load so the first in-game menu never parses it on demand.
+	// Prey has main_menu and no main_menu_gameplay, so the lookup only warns.
+#if !defined(HUMANHEAD)
 	declManager->FindSound( "main_menu_gameplay" );
+#endif
 #if defined(HUMANHEAD)
 	// openPR06: the retained menus' hover and step cues (UserInterfaceRetained.cpp),
 	// which no GUI script names, so nothing else precaches them.

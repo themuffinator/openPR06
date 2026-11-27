@@ -435,9 +435,17 @@ Step 2:
 - The minimum, lowpower and performance presets switched room reverb off. Every
   preset keeps it now, so a profile still on one of those presets with reverb
   off gets it back.
+
+Step 3:
+- s_openALHRTF 0 (auto) was the default, and OpenAL Soft turns HRTF on for any
+  endpoint the system labels headphones, which many laptop and front-panel
+  outputs are whatever is plugged in. Its built-in HRTF thins the bass of every
+  positional sound, so HRTF is a choice now (default 1, off). An archived 0
+  cannot be told from a deliberate Auto, so it moves to off once; Auto and On
+  stay in the menu.
 ==================
 */
-static const int OPENQ4_AUDIO_DEFAULTS_MIGRATION_STEPS = 2;
+static const int OPENQ4_AUDIO_DEFAULTS_MIGRATION_STEPS = 3;
 
 static void Common_MigrateLegacyAudioDefaults( void ) {
 	const int applied = s_audioDefaultsMigrated.GetInteger();
@@ -459,6 +467,10 @@ static void Common_MigrateLegacyAudioDefaults( void ) {
 				break;
 			}
 		}
+	}
+	if ( applied < 3 && cvarSystem->GetCVarInteger( "s_openALHRTF" ) == 0 ) {
+		common->Printf( "Migrating legacy audio config: s_openALHRTF 0 -> 1 (headphone HRTF is off unless chosen; seta s_openALHRTF 2 turns it on)\n" );
+		cvarSystem->SetCVarInteger( "s_openALHRTF", 1, CVAR_ARCHIVE );
 	}
 	s_audioDefaultsMigrated.SetInteger( OPENQ4_AUDIO_DEFAULTS_MIGRATION_STEPS );
 }

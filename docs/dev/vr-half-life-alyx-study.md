@@ -90,12 +90,14 @@ corrections applied in place.
   - The laser dot, the tracer origin and the lightning beam did not follow the
     shot's own path.
 - **HRTF (recommendation 5).** The study proposed turning HRTF on in VR. Auto
-  (`s_openALHRTF 0`, the default) already leaves the choice to OpenAL Soft, and
-  OpenAL Soft turns HRTF on when the system reports headphones. The open
-  question is only whether each headset's audio device reports itself that way.
-  That is a check for the headset checklist, with HRTF forced on in VR only
-  where a headset does not report headphones. Its value is smaller than the
-  quick-win ranking implied.
+  (`s_openALHRTF 0`) leaves the choice to OpenAL Soft, and OpenAL Soft turns
+  HRTF on when the system reports headphones. Since 27 November 2026 the
+  default is 1, off, after an [audio audit](audio-modernization.md#resampler-passband-and-a-fidelity-audit-november-27)
+  measured what the built-in HRTF does to the mix on desktop outputs that only
+  claim to be headphones. A headset session now asks for HRTF by itself
+  (`vr_hrtf`, on by default), whatever the headset's audio device reports and
+  whatever the desktop choice is, and the desktop gets its choice back when the
+  session ends. What is left for the headset checklist is listening.
 
 **Built on 27 November** (on `main`, not pushed; none of it is checked on a
 real headset yet):
@@ -422,7 +424,7 @@ Against Alyx's themes:
 | Combat | Stock Quake 4 encounters, unchanged. |
 | Body | Full body with legs, torso and arms that reach the hands (`vr_body 2`), seen only by the player. |
 | Access | Left-handed weapon hand (swaps sticks too), seated, standing and automatic play spaces, height calibration, stick dead zone. No single-controller mode. |
-| Audio and haptics | Sound listener on the tracked head; OpenAL Soft HRTF on `s_openALHRTF` (0 auto, which depends on the device saying it is headphones). Haptics for shots, hits (both hands), beams, the foregrip latch and pickups. |
+| Audio and haptics | Sound listener on the tracked head; OpenAL Soft HRTF: on while a headset session runs (`vr_hrtf`, since 27 November 2026); on the desktop `s_openALHRTF` (1 off by default; 0 auto depends on the device saying it is headphones; 2 on). Haptics for shots, hits (both hands), beams, the foregrip latch and pickups. |
 | Onboarding | VR SETUP at first entry; no in-game VR hints. |
 | Performance | Fixed `vr_renderScale`; dynamic resolution off in VR; per-eye TAA optional; MSAA and SMAA work; shared uploads, GUIs and static shadows between eyes (VR-04). No visibility mask, no foveation, no multiview. |
 
@@ -507,7 +509,7 @@ campaigns. "SP" means single player only.
 
 | Idea | Fits Quake 4? | openQ4 today | Adaptation | Effort / risk | Blockers |
 | --- | --- | --- | --- | --- | --- |
-| HRTF in VR | Yes. Headset audio is nearly always headphones. | Listener on the head; HRTF on auto, which OpenAL Soft already turns on when the system reports headphones | Check on each headset whether its audio device reports headphones (the log says whether HRTF is active when the device opens). Only where one does not, request HRTF while a headset presents and `s_openALHRTF` is 0; 1 and 2 keep their meaning. | S / low | Needs headsets to check. |
+| HRTF in VR | Yes. Headset audio is nearly always headphones. | Listener on the head; a headset session asks for HRTF by itself (`vr_hrtf`, since 27 November 2026), while the desktop's Headphone HRTF is off unless chosen | Built. Listen on each headset; the log says `for the VR headset, vr_hrtf` when the session turns it on. | S / low | Needs headsets to listen. |
 | Richer haptics, never alone | Yes | Shot, hit, beam, latch, pickup | Pulses for reload steps (from the reload animations' existing frame events), weapon switches, world-screen hover and landing from a fall. Every pulse pairs with a sound or a visual, because Valve found haptics too subtle for some players. | S–M / low | None. |
 
 ### Puzzles and onboarding

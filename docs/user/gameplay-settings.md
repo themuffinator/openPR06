@@ -88,7 +88,7 @@ It needs OpenAL's EFX extension. OpenAL Soft provides it: Windows builds bundle 
 
 ## Speaker Layout
 
-openPR06 follows your audio device by default. Headphones and stereo speakers get stereo, with OpenAL Soft's 3D headphone audio (HRTF) switching on by itself when the system reports headphones, and a 5.1 or 7.1 system gets all of its channels.
+openPR06 follows your audio device by default. Headphones and stereo speakers get stereo, and a 5.1 or 7.1 system gets all of its channels. OpenAL Soft's 3D headphone audio (HRTF) is off unless you choose it, except in a VR headset.
 
 - `s_numberOfSpeakers 0` (default): use the output device's own layout. Set it from the console.
 - `s_numberOfSpeakers 2`: always stereo.
@@ -96,7 +96,8 @@ openPR06 follows your audio device by default. Headphones and stereo speakers ge
 
 The stock **Options -> Audio** speaker choice switches between `2` and `6`. Choosing either there replaces the automatic default; run `seta s_numberOfSpeakers 0` to return to it.
 
-- `s_openALHRTF` chooses headphone HRTF: `0` automatic (default), `1` off, `2` on.
+- `s_openALHRTF` chooses headphone HRTF: `1` off (default), `2` on, `0` automatic (on when the system reports headphones, which many laptop and front-panel outputs claim whatever is plugged in). A config saved with the old automatic default moves to off once.
+- `vr_hrtf 1` (default) turns HRTF on while a VR headset session runs, whatever `s_openALHRTF` says; `vr_hrtf 0` makes the headset follow `s_openALHRTF`.
 - Unplugging a headset or switching the default device keeps the sound going, including music and looping ambience, and keeps your speaker and HRTF choices.
 - Changing `s_numberOfSpeakers`, `s_openALHRTF` or `s_outputLimiter` applies to the open device in place: sounds keep playing without reloading.
 
@@ -106,7 +107,7 @@ These are on by default and rarely need changing. Each takes effect after `s_res
 
 - `s_sourceRadiusScale 0.5`: a sound has a size, half of its shader's `minDistance`. Standing next to a machine or a fire, it surrounds you instead of jumping from ear to ear as you turn. `0` makes every positioned sound a point.
 - `s_directStereo 1`: music and other stereo sounds play straight to your speakers or headphones instead of passing through 3D headphone audio as two virtual speakers.
-- `s_resampler auto`: sounds recorded at a low rate such as 22 kHz are upsampled with a sinc filter for cleaner high frequencies. `default` keeps OpenAL's own, and `listResamplers` lists the choices.
+- `s_resampler auto`: sounds recorded at a low rate such as 22 kHz (nearly all of Prey's) are upsampled with a 23rd order sinc filter, which keeps their treble and adds no aliasing. `default` keeps OpenAL's own, and `listResamplers` lists the choices.
 - `s_outputLimiter 1`: loud scenes compress instead of clipping.
 - `s_airAbsorption 1`: distant sounds lose a little treble, by the air absorption each room's reverb preset sets.
 

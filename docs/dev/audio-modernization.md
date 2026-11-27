@@ -37,8 +37,8 @@ a protected master bus, streaming), not with any one game's tuning, which is not
 | Close sources | Blend to omni inside the inner radius | Spread / focus by distance | Hard point panning; the inner radius was stored but never applied | `AL_SOURCE_RADIUS` from `minDistance` (`s_sourceRadiusScale`) |
 | Unpositioned sounds | Equal to every speaker | Non-spatialized | Rendered as a point straight ahead | Full spread around the listener |
 | Stereo and music | Straight to left and right | Non-diegetic bus | Virtual speakers, so through HRTF on headphones | Direct channels (`s_directStereo`) |
-| Speaker layout and HRTF | XAudio2 device channels | Endpoint layout, binaural option | 5.1 forced everywhere; `s_openALHRTF 1` ignored | Device layout by default; HRTF preference honoured; reopen keeps both |
-| Resampling | XAudio2 SRC | High-quality SRC | OpenAL Soft cubic spline | 11th order sinc (`s_resampler`) |
+| Speaker layout and HRTF | XAudio2 device channels | Endpoint layout, binaural option | 5.1 forced everywhere; `s_openALHRTF 1` ignored | Device layout by default; HRTF a choice, off by default; reopen keeps both |
+| Resampling | XAudio2 SRC | High-quality SRC | OpenAL Soft cubic spline | 23rd order sinc (`s_resampler`) |
 | Master bus | XAudio2 mastering voice | Limiter / HDR | No limiter on float devices | OpenAL Soft limiter (`s_outputLimiter`) |
 | Distance filtering | None | Attenuation low-pass | None | Air absorption from the room preset (`s_airAbsorption`) |
 | Gain headroom | Unclamped sounds above unity | Bus headroom | Clamped to 1 by `AL_MAX_GAIN` | 16x headroom |
@@ -77,8 +77,10 @@ a protected master bus, streaming), not with any one game's tuning, which is not
   and dropped the layout.
 - **Output limiter.** OpenAL Soft's log showed "Output limiter disabled" on a Float32
   shared-mode WASAPI device; it now asks for `ALC_OUTPUT_LIMITER_SOFT` (`s_outputLimiter`).
-- **Resampler.** 4,762 of the 5,737 stock sounds are 22.05 kHz, so nearly every voice is
-  upsampled about 2.2x. `s_resampler auto` picks the runtime's "11th order Sinc"; `default`
+- **Resampler.** 3,626 of Prey's 3,763 stock sounds are 22.05 kHz (the rest 44.1 kHz), so nearly every voice is
+  upsampled about 2.2x. `s_resampler auto` picks the runtime's "23rd order Sinc" (it picked
+  the 11th order one until 27 November, which
+  [cut the treble](#resampler-passband-and-a-fidelity-audit-november-27)); `default`
   keeps OpenAL Soft's own (cubic spline in 1.25); `listResamplers` lists them.
 - **Units.** `AL_SPEED_OF_SOUND` is set in game units (343.3 / 0.0254). Stock content uses no
   Doppler, but a `useDoppler` sound faster than about 9 m/s would have run away in pitch.
@@ -738,7 +740,40 @@ load aborts, and hardware shutdown stops it before the context goes away. With
 `s_debugHardware 1` the stop reports its duration and underrun count. A cold
 13.5 s roadhouse load reported 0 underruns over 16 s.
 
+### Resampler passband and a fidelity audit (November 27)
+
+Ported from openQ4 (34091c1f6, 6f363ac6a, 779606058). openQ4 played known signals
+through the mixer and captured the mix: the 11th order sinc that `s_resampler auto`
+had picked since 6 October cut 22.05 kHz sounds by 9 dB at 8 kHz and 18 dB at
+9 kHz. OpenAL Soft's band-limited sincs end their transition band at the source's
+Nyquist frequency, so the short one is flat only to about 5 kHz. 3,626 of Prey's
+3,763 stock sounds are 22.05 kHz, so the loss reached nearly every voice.
+
+- `auto` now picks the 23rd order sinc (-0.2 dB at 8 kHz, -3.8 dB at 9 kHz, no
+  images) through `SoundResamplerAutoChoice` (`src/sound/SoundResampler.h`). A
+  runtime without one keeps its own default rather than a short sinc. The 47th
+  order sinc adds 0.3 dB for several times the mixing cost and stays available by
+  name.
+- Headphone HRTF is opt-in: `s_openALHRTF` defaults to 1 (off). Auto (0) let
+  OpenAL Soft turn HRTF on for any endpoint the system labels headphones, which
+  many laptop and front-panel outputs are whatever is plugged in, and its built-in
+  HRTF measured -7 dB at 125 Hz and a 15 dB notch at 8 kHz on positional sounds,
+  while sounds at the listener bypass it. Step 3 of the audio defaults migration
+  moves an archived 0 to 1 once; a choice made afterwards is kept.
+- A VR headset session asks for HRTF by itself (`vr_hrtf`, on by default) and
+  holds it for five seconds after the session stops (`src/sound/SoundHrtfPolicy.h`),
+  so a session restart does not reset the output device twice. Every reader of the
+  mode goes through `Sound_RequestedHrtfMode`.
+
+`tools/tests/sound_resampler.py` pins the choice per OpenAL Soft release and
+measures the response on the staged library, with the 11th order sinc as the
+control. `tools/tests/sound_vr_hrtf.py` pins the HRTF rule, the hold, the defaults
+and the migration.
+
 ## Deferred
+
+- **A menu row for `vr_hrtf`.** It is a console setting; openPR06 has no VR
+  settings page yet. Listening on real headsets is still wanted.
 
 - **Audible distance units.** Current `DOOM_TO_METERS` and `METERS_TO_DOOM` are both
   `1.0f` in `src/sound/sound.h`; the earlier claim that the mixer necessarily converts
@@ -790,7 +825,9 @@ load aborts, and hardware shutdown stops it before the context goes away. With
   `tools/tests/sound_screen_shake.py` (camera strength, range and aggregation),
   `tools/tests/macos_openal_provider_policy.py`, `tools/tests/ui_performance_presets.py` and the
   in-engine `performancePresetSelfTest`.
-- The log reports `OpenAL voices: source radius on, direct stereo on (remixed), resampler 11th
+- `tools/tests/sound_resampler.py` (the resampler `auto` picks on each OpenAL Soft release, and
+  on the staged library the treble it keeps at 22.05 kHz, with the short sinc as a control).
+- The log reports `OpenAL voices: source radius on, direct stereo on (remixed), resampler 23rd
   order Sinc` and `OpenAL output limiter: on`.
 - Audible checks without a device: point `ALSOFT_CONF` at a config with `drivers=wave` and a
   `[wave] file=` path, as in [retail-audio-reverb.md](retail-audio-reverb.md).

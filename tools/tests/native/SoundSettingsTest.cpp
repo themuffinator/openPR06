@@ -70,6 +70,8 @@ static void Sound_UpdateControllerRumble(float){}
 // the settings transaction's provider calls at the Render boundary.
 static void SoundVoiceChat_Render(){}
 static int Sys_Milliseconds(){return 2000;}
+// No headset here: the requested HRTF mode is the Headphone HRTF choice (sound_vr_hrtf.py has the VR rule).
+static int Sound_RequestedHrtfMode(){return s_openALHRTF.GetInteger();}
 static bool mainThread=true; bool SDL_IsMainThread(){return mainThread;}
 static int automaticMonitor=0;
 void idSoundHardware_OpenAL::Init(){CHECK(!SoundSettings_BlockAutomaticRestart());}

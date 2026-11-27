@@ -264,7 +264,16 @@ def production(platform):
         raise AssertionError("production queue declaration changed")
     call = "Sys_QueEvent(0,type,value,-value,length,pointer);" if platform == "windows" else "Posix_QueEvent(type,value,-value,length,pointer);"
     wrapper = "\nstatic void Queue(sysEventType_t type,int value,int length,void* pointer) { " + call + " }\n"
-    return relative, SUPPORT + event_types() + globals_ + helper + "\n" + queue + "\n" + get + "\n" + clear + wrapper + MAIN, clear
+    # Posix folds nothing in this fixture and reports one overflow line for the
+    # whole episode. Windows still prints once per discarded event.
+    main = MAIN
+    if platform == "posix":
+        main = main.replace(
+            'Check(warnings==previousWarnings+extra,"each overflow discards exactly one oldest entry");',
+            'Check(warnings==previousWarnings+1,"a saturated queue reports the overflow once");',
+            1,
+        )
+    return relative, SUPPORT + event_types() + globals_ + helper + "\n" + queue + "\n" + get + "\n" + clear + wrapper + main, clear
 
 
 def main():

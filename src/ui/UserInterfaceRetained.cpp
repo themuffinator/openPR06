@@ -2958,7 +2958,15 @@ std::vector<const char*> GameplayDocuments(bool multiplayer) {
 				awakening ? std::span<const char* const>(AwakeningHudSources) : std::span<const char* const>(SinglePlayerHudSources))
 			if (const char* document = idRemasteredHud::DocumentFor(source)) documents.push_back(document);
 	}
-	if (multiplayer) { documents.push_back(WheelDocuments[0]); documents.push_back(QuickChatDocument); }
+	if (multiplayer) {
+		documents.push_back(WheelDocuments[0]);
+#if HUMANHEAD
+		// Prey ships this wheel, not the marine one. A multiplayer client spawns
+		// after the level load, so the parse has to start while the level loads.
+		documents.push_back("guis/hud/weapon_wheel.rui");
+#endif
+		documents.push_back(QuickChatDocument);
+	}
 	else for (const char* wheel : awakening ? std::span<const char* const>(AwakeningWheelDocuments) : std::span<const char* const>(WheelDocuments)) documents.push_back(wheel);
 	documents.push_back(ViewEffectsDocument);
 	return documents;

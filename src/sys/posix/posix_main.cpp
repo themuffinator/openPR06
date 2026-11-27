@@ -502,14 +502,52 @@ void Posix_QueEvent( sysEventType_t type, int value, int value2,
 				  int ptrLength, void *ptr ) {
 	sysEvent_t *ev;
 
+	// A high-rate mouse, or the retained settings pointer, can deliver hundreds
+	// of samples during one menu hitch. The queue holds 256 events. Folding
+	// consecutive motion into the sample already waiting keeps the menu from
+	// printing "Posix_QueEvent: overflow" once per extra sample.
+	if ( eventHead > eventTail && ptrLength >= 0 ) {
+		const int prevSlot = ( eventHead - 1 ) & MASK_QUED_EVENTS;
+		sysEvent_t *prev = &eventQue[prevSlot];
+		const bool prevOwned = eventDispositionTags[prevSlot].Empty() && eventRetirementSerials[prevSlot] == 0;
+		if ( prevOwned && type == SE_MOUSE && ptr == NULL && ptrLength == 0 &&
+				prev->evType == SE_MOUSE && prev->evPtr == NULL ) {
+			prev->evValue += value;
+			prev->evValue2 += value2;
+			return;
+		}
+		// retainedUIInput_t::POINTER is 1 and is the struct's first field.
+		if ( prevOwned && type == SE_RETAINED_UI && ptr != NULL &&
+				prev->evType == SE_RETAINED_UI && prev->evPtr != NULL &&
+				prev->evPtrLength == ptrLength && prev->evValue == value &&
+				ptrLength >= (int)sizeof( int ) ) {
+			const int kind = *static_cast<const int *>( ptr );
+			const int prevKind = *static_cast<const int *>( prev->evPtr );
+			if ( kind == 1 && prevKind == 1 ) {
+				memcpy( prev->evPtr, ptr, static_cast<size_t>( ptrLength ) );
+				Mem_Free( ptr );
+				return;
+			}
+		}
+	}
+
+	static bool overflowReported = false;
+
 	ev = &eventQue[eventHead & MASK_QUED_EVENTS];
 	if (eventHead - eventTail >= MAX_QUED_EVENTS) {
 		Sys_InvalidateEventQueue();
-		common->Printf( "Posix_QueEvent: overflow\n" );
+		// One line per overflow episode. A hitch can discard a sample every
+		// frame, and printing each one is what made the settings menu stall.
+		if ( !overflowReported ) {
+			common->Printf( "Posix_QueEvent: overflow\n" );
+			overflowReported = true;
+		}
 		// we are discarding an event, but don't leak memory
 		// TTimo: verbose dropped event types?
 		Sys_DiscardQueuedEvent( *ev );
 		eventTail++;
+	} else {
+		overflowReported = false;
 	}
 
 	eventHead++;

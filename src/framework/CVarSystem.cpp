@@ -349,10 +349,25 @@ void idInternalCVar::UpdateValue( void ) {
 	} else {
 		if ( valueStrings && valueStrings[0] ) {
 			integerValue = 0;
+			bool matched = false;
 			for ( int i = 0; valueStrings[i]; i++ ) {
 				if ( valueString.Icmp( valueStrings[i] ) == 0 ) {
 					integerValue = i;
+					matched = true;
 					break;
+				}
+			}
+			// Quake 4's listen-server path writes "DM". Prey's list spells that
+			// mode "deathmatch". An unrecognized token would otherwise become
+			// the first entry, which is singleplayer, so a deathmatch server
+			// loaded its single-player menus and left the weapon wheel to parse
+			// after the level load.
+			if ( !matched && !nameString.Icmp( "si_gameType" ) && !valueString.Icmp( "DM" ) ) {
+				for ( int i = 0; valueStrings[i]; i++ ) {
+					if ( !idStr::Icmp( valueStrings[i], "deathmatch" ) ) {
+						integerValue = i;
+						break;
+					}
 				}
 			}
 			valueString = valueStrings[integerValue];

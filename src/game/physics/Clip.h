@@ -42,6 +42,8 @@ public:
 							explicit idClipModel( const idTraceModel &trm );
 							explicit idClipModel( const int renderModelHandle );
 							explicit idClipModel( const idClipModel *model );
+							idClipModel( const idClipModel & ) = delete;
+							idClipModel &			operator=( const idClipModel & ) = delete;
 							~idClipModel( void );
 
 #if _HH_CLIP_FASTSECTORS //HUMANHEAD rww
@@ -115,6 +117,7 @@ private:
 	int						touchCount;
 
 	void					Init( void );			// initialize
+	void					ReleaseCollisionModel( void );
 #if !_HH_CLIP_FASTSECTORS //HUMANHEAD rww
 	void					Link_r( struct clipSector_s *node );
 #endif //HUMANHEAD END

@@ -128,6 +128,12 @@ void hhGameLocal::InitFromNewMap( const char *mapName, idRenderWorld *renderWorl
 
 	idGameLocal::InitFromNewMap(mapName, renderWorld, soundWorld, isServer, isClient, randseed);
 
+	// Multiplayer clients spawn after the level load ends. Resolve the wheel's
+	// icons while this load is still the precache window.
+	if ( isMultiplayer ) {
+		hhPlayer::PrecacheWeaponWheelMedia();
+	}
+
 	// CJR: Determine if this map is a LOTA map by looking for a special entity on the map
 	bIsLOTA = false;
 	if ( FindEntity( "LOTA_ThisMapIsLOTA" ) ) {

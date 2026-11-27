@@ -438,6 +438,7 @@ public:
 	// a weapon on a ring. Its presentation is local, never saved or sent;
 	// what the held control does to the usercmd is decided from the usercmd.
 	void				InitWeaponWheel( void );
+	static void			PrecacheWeaponWheelMedia( void );
 	void				PrecacheWeaponWheel( void );
 	void				FreeWeaponWheelGui( void );
 	void				ResetWeaponWheel( bool instant );

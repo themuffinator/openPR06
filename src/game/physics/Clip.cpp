@@ -202,10 +202,23 @@ void idClipModel::UpdateDynamicContents( void ) {
 
 /*
 ================
+idClipModel::ReleaseCollisionModel
+================
+*/
+void idClipModel::ReleaseCollisionModel( void ) {
+	if ( collisionModelHandle != NULL ) {
+		collisionModelManager->FreeModel( collisionModelHandle );
+		collisionModelHandle = NULL;
+	}
+}
+
+/*
+================
 idClipModel::LoadModel
 ================
 */
 bool idClipModel::LoadModel( const char *name ) {
+	ReleaseCollisionModel();
 	renderModelHandle = -1;
 	if ( traceModelIndex != -1 ) {
 		FreeTraceModel( traceModelIndex );
@@ -228,6 +241,7 @@ idClipModel::LoadModel
 ================
 */
 void idClipModel::LoadModel( const idTraceModel &trm ) {
+	ReleaseCollisionModel();
 	collisionModelHandle = 0;
 	renderModelHandle = -1;
 	if ( traceModelIndex != -1 ) {
@@ -243,6 +257,7 @@ idClipModel::LoadModel
 ================
 */
 void idClipModel::LoadModel( const int renderModelHandle ) {
+	ReleaseCollisionModel();
 	collisionModelHandle = 0;
 	this->renderModelHandle = renderModelHandle;
 	if ( renderModelHandle != -1 ) {
@@ -341,11 +356,17 @@ idClipModel::idClipModel( const idClipModel *model ) {
 	absBounds = model->absBounds;
 	material = model->material;
 	contents = model->contents;
-	collisionModelHandle = model->collisionModelHandle;
+	collisionModelHandle = NULL;
 	traceModelIndex = -1;
 	if ( model->traceModelIndex != -1 ) {
 		LoadModel( *GetCachedTraceModel( model->traceModelIndex ) );
+	} else if ( model->collisionModelHandle != NULL ) {
+		const char *name = collisionModelManager->GetModelName( model->collisionModelHandle );
+		if ( name != NULL && name[0] != '\0' ) {
+			LoadModel( name );
+		}
 	}
+	// LoadModel( name ) clears this. Restore it after that call.
 	renderModelHandle = model->renderModelHandle;
 	clipLinks = NULL;
 	touchCount = -1;
@@ -362,6 +383,7 @@ idClipModel::~idClipModel
 idClipModel::~idClipModel( void ) {
 	// make sure the clip model is no longer linked
 	Unlink();
+	ReleaseCollisionModel();
 	if ( traceModelIndex != -1 ) {
 		FreeTraceModel( traceModelIndex );
 	}
@@ -418,6 +440,7 @@ void idClipModel::Restore( idRestoreGame *savefile ) {
 	savefile->ReadMaterial( material );
 	savefile->ReadInt( contents );
 	savefile->ReadString( collisionModelName );
+	ReleaseCollisionModel();
 	if ( collisionModelName.Length() ) {
 		collisionModelHandle = collisionModelManager->LoadModel( collisionModelName, false );
 	} else {
@@ -643,7 +666,13 @@ idClipModel::CheckModel
 ============
 */
 cmHandle_t idClipModel::CheckModel( const char *name ) {
-	return collisionModelManager->LoadModel( name, false );
+	// LoadModel keeps a reference. This is only a presence test, so give that
+	// reference back. The model stays resident until the map is purged.
+	idCollisionModel *model = collisionModelManager->LoadModel( name, false );
+	if ( model != NULL ) {
+		collisionModelManager->FreeModel( model );
+	}
+	return model;
 }
 
 

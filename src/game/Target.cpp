@@ -597,8 +597,11 @@ void idTarget_SetModel::Spawn( void ) {
 	if ( declManager->FindType( DECL_MODELDEF, model, false ) == NULL ) {
 		// precache the render model
 		renderModelManager->FindModel( model );
-		// precache .cm files only
-		collisionModelManager->LoadModel( model, true );
+		// precache .cm files only, without leaving the reference behind
+		idCollisionModel *collisionModel = collisionModelManager->LoadModel( model, true );
+		if ( collisionModel != NULL ) {
+			collisionModelManager->FreeModel( collisionModel );
+		}
 	}
 }
 

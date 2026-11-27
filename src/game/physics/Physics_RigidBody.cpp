@@ -950,6 +950,21 @@ bool idPhysics_RigidBody::Evaluate( int timeStepMSec, int endTimeMSec ) {
 	// calculate next position and orientation
 	Integrate( timeStep, next );
 
+	// openPR06: a step longer than a trace model can be traced (CM_MAX_TRACE_DIST) cannot
+	// be clipped. idClip would answer with a contact-less "collision" at the start position
+	// on every frame while the body kept its runaway momentum, freezing it in place and
+	// tripping the huge-translation assert in debug builds. Absorb the motion instead and
+	// name the body, so whatever launched it can be found.
+	const float stepDistSqr = ( next.i.position - current.i.position ).LengthSqr();
+	if ( stepDistSqr > Square( CM_MAX_TRACE_DIST ) ) {
+		gameLocal.Warning( "rigid body step of %.0f units for entity '%s' type '%s' (mass %.4f, speed %.0f) at (%s); stopping it",
+							idMath::Sqrt( stepDistSqr ), self->name.c_str(), self->GetType()->classname,
+							mass, ( inverseMass * current.i.linearMomentum ).Length(), current.i.position.ToString( 0 ) );
+		next = current;
+		next.i.linearMomentum.Zero();
+		next.i.angularMomentum.Zero();
+	}
+
 #ifdef RB_TIMINGS
 	timer_collision.Start();
 #endif

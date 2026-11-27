@@ -1183,18 +1183,22 @@ idClip::TestHugeTranslation
 */
 ID_INLINE bool TestHugeTranslation( trace_t &results, const idClipModel *mdl, const idVec3 &start, const idVec3 &end, const idMat3 &trmAxis ) {
 	if ( mdl != NULL && ( end - start ).LengthSqr() > Square( CM_MAX_TRACE_DIST ) ) {
-		assert( 0 );
+		// openPR06: no assert. The case is handled below, and a debug break here only hid
+		// which entity moved (as in dhewm3, a warning is enough).
 
 		results.fraction = 0.0f;
 		results.endpos = start;
 		results.endAxis = trmAxis;
 		memset( &results.c, 0, sizeof( results.c ) );
 		results.c.point = start;
+		// openPR06: blame the world. A zeroed contact named entity 0, the player, so the
+		// mover "hit" the player (impulses, moveable impact damage) wherever they were.
+		results.c.entityNum = ENTITYNUM_WORLD;
 
 		if ( mdl->GetEntity() ) {
-			gameLocal.Printf( "huge translation for clip model %d on entity %d '%s'\n", mdl->GetId(), mdl->GetEntity()->entityNumber, mdl->GetEntity()->GetName() );
+			gameLocal.Warning( "huge translation for clip model %d on entity %d '%s' from (%s) to (%s)", mdl->GetId(), mdl->GetEntity()->entityNumber, mdl->GetEntity()->GetName(), start.ToString( 0 ), end.ToString( 0 ) );
 		} else {
-			gameLocal.Printf( "huge translation for clip model %d\n", mdl->GetId() );
+			gameLocal.Warning( "huge translation for clip model %d from (%s) to (%s)", mdl->GetId(), start.ToString( 0 ), end.ToString( 0 ) );
 		}
 		return true;
 	}

@@ -229,6 +229,7 @@ bool ApplicationState(const DocumentModel& model, const idDict& dictionary, Stat
 	const auto read = [&](const std::string& name, const StateDeclaration& declaration) {
 		if (declaration.HostSourced() || name.starts_with("settings.") || NumberDraftState(name.c_str())) return true;
 		if (model.detail && name == model.detail->state) return true; // The runtime writes the detail subject.
+		if (model.tooltip && name == model.tooltip->state) return true; // And the shown tooltip.
 		StateValue value = declaration.initial;
 		// A key state's glyph, and the key state as its label.
 		if (name.ends_with(".glyph") && declaration.initial.index() == 0) {
@@ -284,7 +285,7 @@ bool SessionMenuCommand(const std::string& command) {
         "joinSortGameType","joinSortMap","joinSortDedicated","joinSortRepeater","joinFavorite","joinModPrevious","joinModNext",
         "joinFilterFull","joinFilterEmpty","joinFilterPassword","joinGameTypePrevious","joinGameTypeNext","joinClearFilters",
         "msgLeft","msgRight","msgMid","presetCheckApply","presetCheckKeep","presetCheckLater",
-        "noticeAction0","noticeAction1","noticeAction2","audioBack","gameBack","controlsBind","controlsClear","controlsBack","controlsTouchLayout",
+        "noticeAction0","noticeAction1","noticeAction2","vrRecenter","vrCalibrateHeight","vrDetect","audioBack","gameBack","controlsBind","controlsClear","controlsBack","controlsTouchLayout",
         "controlsResetController","controlsResetKeyboard","controlsCalibrateGyro","controlsRumbleTest",
         "oskKey","oskShift","oskLayer","oskSpace","oskLeft","oskRight","oskBackspace","oskDone","oskCancel",
         "settingsBack","settingsControls","settingsGame","settingsDisplay","settingsAudio","settingsDefaults",
@@ -455,6 +456,9 @@ const PlayerSetting* FindPlayerSetting(const std::string& cvar) {
 		{"in_joystickTriggerThreshold",{0,0,1,false}},{"in_joystickRumble",{1}},{"in_joystickRumbleScale",{0,0,2,false}},{"in_gyro",{1}},
 		{"in_gyroSensitivity",{0,0,8,false}},{"in_touchpadMode",{0,0,3,true,{},{0,1,2,3}}},{"in_touchpadSensitivity",{0,0,8,false}},
 		{"in_touchscreen",{1}},{"in_joystickLowBatteryRumbleThreshold",{0,0,100,true}},
+		// The built-in touch controls (CONTROLS' ON-SCREEN CONTROLS, Android).
+		{"in_touchControls",{1}},{"in_touchLayoutPreset",{0,0,2,true,{},{0,1,2}}},{"in_touchControlsScale",{0,0.75,1.5,false}},
+		{"in_touchLookSensitivity",{0,0.1,4,false}},
 		{"in_joystickLowBatteryRumbleScale",{0,0,2,false}},{"in_promptStyle",{0,0,5,true,{},{0,1,2,3,4,5}}},
 		{"in_swapConfirmBack",{0,0,2,true,{},{0,1,2}}},
 		// The controller's own tabs on CONTROLS (PAD-01 to PAD-08): the device
@@ -478,16 +482,16 @@ const PlayerSetting* FindPlayerSetting(const std::string& cvar) {
 		{"hud_hitMarker",{1}},{"hud_crosshairAnimated",{1}},{"ui_hudLayout",{0,0,3,true,{},{0,1,2,3}}},{"ui_hudScale",{0,0.5,2,false}},
 		{"ui_hudWidth",{0,0,2,true,{},{0,1,2}}},{"ui_hudSafeInset",{0,0,10,false}},{"g_objectivesToggle",{1}},
 		{"ui_hudOpacity",{0,0.25,1,false}},{"ui_hudDamageDirection",{1}},{"ui_hudPickups",{1}},{"ui_hudWeaponStrip",{1}},
-		{"ui_reducedFlashing",{1}},{"ui_retainedOpaqueBacking",{1}},{"g_corpseSink",{0,0,2,true,{},{0,1,2}}},{"con_allowConsole",{0,0,1,true,{},{0,1}}},
+		{"ui_reducedFlashing",{1}},{"ui_retainedOpaqueBacking",{1}},{"ui_tooltips",{1}},{"g_corpseSink",{0,0,2,true,{},{0,1,2}}},{"con_allowConsole",{0,0,1,true,{},{0,1}}},
 		{"r_screenshotFormat",{0,0,1,true,{},{0,1}}},{"g_autoSkipCinematics",{1}},{"ui_cinematicShake",{0,0,1,false}},{"g_screenShake",{0,0,1,false}},{"g_enhancedPhysics",{1}},
 		{"cl_gunfov",{0,0,179,false}},{"cl_gunfov_adjust",{0,0,1,true,{},{0,1}}},
 		{"cl_gun_x",{0,-5,5,false}},{"cl_gun_y",{0,-5,5,false}},{"cl_gun_z",{0,-5,5,false}},{"g_weaponMuzzleKick",{1}},{"g_viewKick",{0,0,1,false}},
-		{"vr_enable",{1}},{"vr_aimMode",{0,0,1,true,{},{1,0}}},{"vr_leftHanded",{0,0,1,true,{},{0,1}}},
+		{"vr_enable",{0,0,2,true,{},{0,1,2}}},{"vr_aimMode",{0,0,1,true,{},{1,0}}},{"vr_leftHanded",{0,0,1,true,{},{0,1}}},
 		{"vr_turnMode",{0,0,1,true,{},{0,1}}},{"vr_snapTurnAngle",{0,30,90,true,{},{30,45,60,90}}},
 		{"vr_moveDirection",{0,0,1,true,{},{0,1}}},{"vr_roomScale",{1}},{"vr_aimLaser",{0,0,2,true,{},{0,1,2}}},
 		{"vr_hapticStrength",{2,0,0,false,{"0","0.5","1"}}},{"vr_twoHanded",{1}},
 		{"vr_comfortVignette",{2,0,0,false,{"0","0.5","1"}}},{"vr_physicalCrouch",{1}},
-		{"vr_playSpace",{0,0,2,true,{},{0,1,2}}},{"vr_body",{0,0,2,true,{},{0,1,2}}},
+		{"vr_playSpace",{0,0,2,true,{},{0,1,2}}},{"vr_body",{0,0,2,true,{},{0,1,2}}},{"vr_hudMode",{0,0,1,true,{},{1,0}}},
 		// openPR06: Prey's Options page, Game Options tab (guis/menu/settings.rui),
 		// beside the settings above that it shares with Quake 4's.
 		{"g_showHud",{1}},{"g_subtitles",{1}},{"com_profanity",{1}},{"g_useDDA",{1}},
@@ -850,6 +854,11 @@ bool WriteString(idFile& file, const std::string& value) {
 }
 }
 
+// RetainedUI_HoverGeneration: one more each time the pointer comes to rest
+// on another control of an active document.
+static unsigned retainedHoverGeneration = 0;
+unsigned RetainedUI_HoverGeneration() { return retainedHoverGeneration; }
+
 struct idUserInterfaceRetained::Impl {
 	idDict state;
 	// The public dictionary is a pending batch. Keep it intact for saves and
@@ -904,6 +913,10 @@ struct idUserInterfaceRetained::Impl {
 	}
 	void ApplicationCommitted() { fullApplication = false; dirtyApplication.clear(); }
 	idStr path;
+	// The file loaded for `path`: the touch variant's own document where the
+	// menu has one (UI_RetainedVariantPath), otherwise `path` itself.
+	idStr loadedPath;
+	bool touchDocument = false;
 	ID_TIME_T stamp = 0;
 	Document document;
 	retainedUIView_t* view = nullptr;
@@ -1201,7 +1214,18 @@ struct idUserInterfaceRetained::Impl {
 	// Prompts follow the active device (section 13.5): a document that declares
 	// prompt.glyphs gets RetainedUI_PromptGlyphs in the frame it changes, the
 	// keyboard's keycaps or a controller family's face buttons.
+	// A control the pointer newly rests on, of the document that takes input.
+	std::string lastHovered;
+	void TrackPointerHover() {
+		auto* runtime = RuntimeView();
+		if (!runtime || !active || !interactive) return;
+		auto hovered = runtime->HoveredControl();
+		if (hovered == lastHovered) return;
+		if (!hovered.empty()) ++retainedHoverGeneration;
+		lastHovered = std::move(hovered);
+	}
 	void PublishPromptGlyphs() {
+		TrackPointerHover();
 		static const char* const name = "prompt.glyphs";
 		static const char* const swapped = "prompt.swapped";
 		StateValues changed;
@@ -1256,6 +1280,14 @@ struct idUserInterfaceRetained::Impl {
 	// the safety fit is irrelevant to it.
 	bool DocumentViewport(Viewport& viewport) const {
 		if (!RetainedUI_DefaultViewport(viewport)) return false;
+		if (touchDocument) {
+			// A touch document lays out in the device's own dp: it fits only a
+			// window smaller than 320 dp, and its text takes the player's size
+			// over the device class's default, which the canvas menus need
+			// (docs/dev/ui/interface-variants.md).
+			viewport.FitToMinimum(320, 320);
+			viewport.textScale = (std::max)(1.f, viewport.textScale / RetainedUI_DeviceTextDefault());
+		}
 		if (document.Model().canvasHeight > 0) {
 			viewport.canvasHeight = static_cast<float>(document.Model().canvasHeight); viewport.fitScale = 1;
 			viewport.canvasMinWidth = static_cast<float>(document.Model().canvasMinWidth);
@@ -1503,10 +1535,35 @@ int idUserInterfaceRetained::NumTransitions() { return static_cast<int>(impl->do
 // The parse UI_RetainedPrefetchDocuments made of this source, if it made one.
 bool UI_RetainedTakePrefetched(const std::string& path, int size, std::string& source, ID_TIME_T& stamp, Document& document);
 
+// The touch variant's own document for a menu (docs/dev/ui/interface-variants.md):
+// guis/menu/touch/<name>.rui stands for guis/menu/[<folder>/]<name>[_awakening|_strogg].rui
+// while the interface variant is touch, where that file exists.
+static std::string UI_RetainedTouchPath(const std::string& logical) {
+	static const std::string menus = "guis/menu/", touch = "guis/menu/touch/";
+	if (logical.compare(0,menus.size(),menus) != 0 || logical.compare(0,touch.size(),touch) == 0 || logical.size() < 5) return {};
+	const auto slash = logical.find_last_of('/');
+	std::string name = logical.substr(slash+1,logical.size()-slash-1-4);
+	for (const std::string suffix : {"_awakening","_strogg"}) {
+		if (name.size() > suffix.size() && name.compare(name.size()-suffix.size(),suffix.size(),suffix) == 0) { name.resize(name.size()-suffix.size()); break; }
+	}
+	return touch+name+".rui";
+}
+static std::string UI_RetainedVariantPath(const std::string& logical) {
+	if (RetainedUI_InterfaceVariant() != openq4::ui::InterfaceVariant::Touch) return logical;
+	const auto touch = UI_RetainedTouchPath(logical);
+	if (touch.empty()) return logical;
+	// The packs do not change while the game runs; ask the file system once a path.
+	static std::map<std::string,bool> exists;
+	auto found = exists.find(touch);
+	if (found == exists.end()) found = exists.emplace(touch,fileSystem->ReadFile(touch.c_str(),nullptr) > 0).first;
+	return found->second ? touch : logical;
+}
+
 bool idUserInterfaceRetained::InitFromFile(const char* qpath, bool rebuild, bool cache) {
 	if (!UI_IsRetainedPath(qpath)) return false;
-	const std::string path(qpath);
-	if (path.find("..") != std::string::npos || path.find(':') != std::string::npos || path[0] == '/' || path[0] == '\\') return false;
+	const std::string logical(qpath);
+	if (logical.find("..") != std::string::npos || logical.find(':') != std::string::npos || logical[0] == '/' || logical[0] == '\\') return false;
+	const std::string path = UI_RetainedVariantPath(logical);
 	ID_TIME_T stamp = 0;
 	const int expectedSize = fileSystem->ReadFile(path.c_str(),nullptr);
 	if (expectedSize <= 0 || expectedSize > 16*1024*1024) return false;
@@ -1533,9 +1590,12 @@ bool idUserInterfaceRetained::InitFromFile(const char* qpath, bool rebuild, bool
 	if (!ValidateApplication(candidate.Model(),error)) { impl->Error(error); return false; }
 	StateValues application;
 	std::string snapshot;
-	const bool same = impl->Prepare() && path == impl->path.c_str() && source == impl->document.Source();
+	const bool same = impl->Prepare() && path == impl->loadedPath.c_str() && source == impl->document.Source();
 	if (!same && !ApplicationState(candidate.Model(),impl->state,application,error)) { impl->Error(error); return false; }
 	if (same && !impl->RuntimeView()->SaveSnapshot(snapshot,error,RetainedUI_PresentationTime())) { impl->Error(error); return false; }
+	// The same page in the other variant's document (Redraw's swap): it keeps
+	// its settings owner, so an unapplied DISPLAY draft survives the swap.
+	const bool variantSwap = impl->view && impl->path == logical.c_str() && impl->loadedPath != path.c_str();
 	const auto textDocument = UI_NextTextLifetime();
 	if (!impl->textBackend || !textDocument) { impl->Error("GUI text lifetime exhausted"); return false; }
 	auto* view = RetainedUI_CreateView(Impl::ResourceEvent,impl.get());
@@ -1557,16 +1617,17 @@ bool idUserInterfaceRetained::InitFromFile(const char* qpath, bool rebuild, bool
 	impl->settingsClosePending = false;
 	RetainedUI_DestroyView(impl->view); impl->view = view;
 	impl->RuntimeView()->ReleaseInputSources();
-	impl->document = std::move(candidate); impl->path = path.c_str(); impl->stamp = stamp;
+	impl->document = std::move(candidate); impl->path = logical.c_str(); impl->loadedPath = path.c_str(); impl->stamp = stamp;
+	impl->touchDocument = path != logical;
 	impl->IndexApplication();
 	if (!same) {
 		impl->initialized = false;
-		UI_SettingsReleaseOwner(impl->settingsOwner); impl->settingsOwner = UI_SettingsCreateOwner();
+		if (!variantSwap) { UI_SettingsReleaseOwner(impl->settingsOwner); impl->settingsOwner = UI_SettingsCreateOwner(); }
 	}
 	impl->settingsFields = std::any_of(impl->document.Model().state.begin(),impl->document.Model().state.end(),
 		[](const auto& field) { return field.first.starts_with("settings."); });
 	UI_SettingsConfirmationDocument(impl->settingsOwner,impl->document.Model());
-	impl->state.Set("name",path.c_str()); impl->lastError.clear();
+	impl->state.Set("name",logical.c_str()); impl->lastError.clear();
 	if (!impl->interactiveSet) impl->interactive = impl->hasControls && !NonInteractive(impl->state);
 	RegisterLoaded(); RefreshThinking();
 	PrecacheImages(impl->document.Model().root);
@@ -1586,7 +1647,7 @@ bool idUserInterfaceRetained::InitFromFile(const char* qpath, bool rebuild, bool
 bool idUserInterfaceRetained::KeepForLevelLoad() {
 	if (!impl->view || !impl->Prepare()) return false;
 	void* data = nullptr;
-	const int size = fileSystem->ReadFile(impl->path.c_str(),&data);
+	const int size = fileSystem->ReadFile(impl->loadedPath.c_str(),&data);
 	const auto& source = impl->document.Source();
 	const bool same = size >= 0 && data && static_cast<size_t>(size) == source.size() &&
 		std::memcmp(data,source.data(),source.size()) == 0;
@@ -1911,6 +1972,13 @@ void idUserInterfaceRetained::Redraw(int time, bool useAspectCorrection) {
 	if (!useAspectCorrection) {
 		if (!impl->worldReported) { impl->Error("World-surface output is not implemented for retained menu documents"); impl->worldReported = true; }
 		return;
+	}
+	// The interface variant changed: the menu takes its other document (the
+	// touch variant's own, or back), keeping the session's state, and starts
+	// as the page it replaces had.
+	if (impl->view && UI_RetainedVariantPath(impl->path.c_str()) != impl->loadedPath.c_str()) {
+		const idStr logical = impl->path;
+		if (InitFromFile(logical.c_str(),true,true) && impl->active) HandleNamedEvent("onActivate");
 	}
 	Viewport viewport;
 	if (!impl->DocumentViewport(viewport) || !impl->Prepare()) return;
@@ -2264,7 +2332,22 @@ bool idUserInterfaceRetained::ReadFromSaveGame(idFile* file) {
 	// Snapshot validation is atomic; outer dictionary/flags follow on success.
 	const auto textDocument = UI_NextTextLifetime();
 	if (!textDocument) { impl->Error("GUI text lifetime exhausted"); return false; }
-	if (!impl->RuntimeView()->RestoreSnapshot(snapshot,error,RetainedUI_PresentationTime())) { impl->Error(error); return false; }
+	if (!impl->RuntimeView()->RestoreSnapshot(snapshot,error,RetainedUI_PresentationTime())) {
+		// A save made before this document was last edited names the same
+		// document at other source text: a 0.15.0 save of a hover-tank level holds
+		// the tank's machine-gun scope from before its 23 November restructuring.
+		// That revision's presentation cannot be replayed here, so rebuild the
+		// GUI from its saved state dictionary, as reloading a changed document
+		// does, rather than refusing the whole save.
+		StateValues application;
+		std::string rebuildError;
+		if (!impl->RuntimeView()->SnapshotNamesOtherRevision(snapshot) ||
+			!ApplicationState(impl->document.Model(),state,application,rebuildError) ||
+			!impl->RuntimeView()->SetState(application,rebuildError,RetainedUI_PresentationTime())) {
+			impl->Error(error); return false;
+		}
+		common->Printf("retained GUI %s: saved with an earlier revision of its document; restored from its saved state\n", Name());
+	}
 	openq4::NativeInputBeforeUiChange(0,impl->textBackend);
 	impl->textDocument = textDocument;
 	impl->Quarantine(false,false,true); impl->state = state; impl->state.Set("name",Name());

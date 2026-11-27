@@ -306,4 +306,10 @@
 	"#str_232510"	"openPR06 a été mis à jour en version %s."
 	"#str_232511"	"openPR06 %s n'a pas pu être installé. openPR06 %s reste inchangé.\n\nOuvrir la page de téléchargement pour l'installer vous-même ?"
 	"#str_232512"	"openPR06 n'a pas pu redémarrer après la mise à jour. Lancez-le depuis son dossier."
+	// VR headset notices (Session_vr.cpp), from openQ4
+	"#str_233504"	"Jouer en RV"
+	"#str_233509"	"Casque RV détecté"
+	"#str_233510"	"Aucun runtime RV n'est installé"
+	"#str_233511"	"Aucun casque RV n'a répondu"
+	"#str_233512"	"Casque RV détecté : choisissez un Mode RV pour l'utiliser"
 }

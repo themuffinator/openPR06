@@ -1926,6 +1926,16 @@ const char *idUserInterfaceLocal::Activate(bool activate, int _time) {
 	evaluatedHudValid = false;
 	time = _time;
 	active = activate;
+	if ( activate && !cursorPlaced && desktop != NULL && ( desktop->GetFlags() & WIN_MENUGUI ) ) {
+		// The constructor's 0,0 is the corner of the centred 4:3 screen; on a
+		// wider canvas the pointer should start at the canvas's own corner.
+		float minX = 0.0f;
+		float minY = 0.0f;
+		float maxX = 0.0f;
+		float maxY = 0.0f;
+		GetCursorBounds( minX, minY, maxX, maxY );
+		SetCursor( minX, minY );
+	}
 	if ( desktop ) {
 		activateStr = "";
 		desktop->Activate( activate, activateStr );
@@ -2298,6 +2308,27 @@ bool idUserInterfaceLocal::ReadFromSaveGame( idFile *savefile ) {
 	return true;
 }
 
+/*
+==============
+idUserInterfaceLocal::HoverControl
+
+openQ4 (VR-09): which control the cursor rests on, as a number that changes
+whenever it moves onto another, for the hand that points at a world screen
+to feel each control it crosses. Looked up when asked, so the cursor's
+moves cost nothing more.
+==============
+*/
+int idUserInterfaceLocal::HoverControl( void ) {
+	const idWindow *control = ( desktop != NULL && interactive ) ? desktop->ControlAt( cursorX, cursorY ) : NULL;
+	if ( control != hoverControl ) {
+		hoverControl = control;
+		if ( control != NULL ) {
+			hoverControlCount = hoverControlCount >= 0x3fffffff ? 1 : hoverControlCount + 1;
+		}
+	}
+	return control != NULL ? hoverControlCount : 0;
+}
+
 namespace {
 
 struct uiSavedWindowVar_t {
@@ -2527,22 +2558,16 @@ idUserInterfaceLocal::SetCursor
 void idUserInterfaceLocal::SetCursor( float x, float y ) {
 	cursorX = x;
 	cursorY = y;
+	cursorPlaced = true;
 	ClampCursor();
 }
 
 /*
 ==============
-idUserInterfaceLocal::ClampCursor
+idUserInterfaceLocal::GetCursorBounds
 ==============
 */
-void idUserInterfaceLocal::ClampCursor( void ) {
-	if ( !std::isfinite( cursorX ) ) {
-		cursorX = 0.0f;
-	}
-	if ( !std::isfinite( cursorY ) ) {
-		cursorY = 0.0f;
-	}
-
+void idUserInterfaceLocal::GetCursorBounds( float &minX, float &minY, float &maxX, float &maxY ) const {
 	// Retail clamps the cursor to the virtual screen, and the game's in-world
 	// GUI interaction depends on it: idPlayer::UpdateFocus parks the cursor at
 	// the corner before every absolute reposition. Menu GUIs may extend past
@@ -2552,10 +2577,10 @@ void idUserInterfaceLocal::ClampCursor( void ) {
 	// whichever GUI drew last, which can be a world-surface GUI drawn
 	// uncorrected; reading it could wall the cursor in at the 4:3 edges
 	// (reported on macOS in PR #173).
-	float minX = 0.0f;
-	float minY = 0.0f;
-	float maxX = static_cast<float>( VIRTUAL_WIDTH );
-	float maxY = static_cast<float>( VIRTUAL_HEIGHT );
+	minX = 0.0f;
+	minY = 0.0f;
+	maxX = static_cast<float>( VIRTUAL_WIDTH );
+	maxY = static_cast<float>( VIRTUAL_HEIGHT );
 	if ( desktop != NULL ) {
 		if ( std::isfinite( desktop->forceAspectWidth ) && desktop->forceAspectWidth > 0.0f ) {
 			maxX = desktop->forceAspectWidth;
@@ -2577,6 +2602,26 @@ void idUserInterfaceLocal::ClampCursor( void ) {
 			}
 		}
 	}
+}
+
+/*
+==============
+idUserInterfaceLocal::ClampCursor
+==============
+*/
+void idUserInterfaceLocal::ClampCursor( void ) {
+	if ( !std::isfinite( cursorX ) ) {
+		cursorX = 0.0f;
+	}
+	if ( !std::isfinite( cursorY ) ) {
+		cursorY = 0.0f;
+	}
+
+	float minX = 0.0f;
+	float minY = 0.0f;
+	float maxX = 0.0f;
+	float maxY = 0.0f;
+	GetCursorBounds( minX, minY, maxX, maxY );
 	cursorX = idMath::ClampFloat( minX, maxX, cursorX );
 	cursorY = idMath::ClampFloat( minY, maxY, cursorY );
 }

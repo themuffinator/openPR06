@@ -15,6 +15,11 @@ static const int SHADOWMAP_PROJECTED_CASCADE_SAMPLE_POINT_COUNT = 23;
 typedef enum {
 	SHADOWMAP_PROJECTED_FALLBACK_NONE = 0,
 	SHADOWMAP_PROJECTED_FALLBACK_INSUFFICIENT_VALID_SAMPLES,
+	// No fit reports this since 27 November 2026: a view slice that reaches
+	// behind the light's source plane is cut where the light begins instead
+	// of collapsing the light to one map (R_ShadowMapBuildCascadeBounds). The
+	// fit still records the fact in mixedWSigns. The reason stays so that
+	// the one after it keeps its number in logs and reports.
 	SHADOWMAP_PROJECTED_FALLBACK_MIXED_W_SIGNS,
 	SHADOWMAP_PROJECTED_FALLBACK_COLLAPSED_BOUNDS
 } shadowMapProjectedFallbackReason_t;
@@ -63,6 +68,12 @@ typedef struct shadowMapProjectedLightState_s {
 	// far corner of the light volume it equals worldTexelSize for the whole
 	// map. See R_ShadowMapProjectedNormalOffsetWorld.
 	float				texelPerDepth[SHADOWMAP_PROJECTED_MAX_CASCADES];
+	// The share of the receiver bias this light keeps (1 for most lights).
+	// A map that holds only the faces turned away from the light holds no
+	// receiver that faces it, and needs none of the bias that keeps such a
+	// receiver off its own depth (R_ShadowMapLightStoresFarShell). The
+	// normal offset and texel steps derived from the state carry it too.
+	float				receiverBiasScale;
 	float				sliceNear[SHADOWMAP_PROJECTED_MAX_CASCADES];
 	float				sliceFar[SHADOWMAP_PROJECTED_MAX_CASCADES];
 	float				depthRange[SHADOWMAP_PROJECTED_MAX_CASCADES];
@@ -115,13 +126,31 @@ void R_ShadowMapProjectedTexelDepthSteps( const shadowMapProjectedLightState_t &
 // texel grows with distance from the source, and one distance sized for the
 // far end of the volume pushed nearer receivers further than a texel.
 float R_ShadowMapProjectedNormalOffsetWorld( const shadowMapProjectedLightState_t &state, int cascadeIndex, float normalOffsetScale, bool depthScaled );
+// The penumbra of a sun-like light for PCSS-lite: its radius in shadow texels
+// per unit of stored depth between blocker and receiver, for a receiver at
+// light depth w = 1 (the receiver divides by its own w; a parallel light's w
+// is the constant 1). sunPenumbraTan is the tangent of half the source's
+// apparent diameter. A gap of g world units along the light leaves a
+// penumbra g * tan wide to each side, the stored depth changes by the depth
+// row's length per world unit, and a texel spans 2 w / ( tileSize * the
+// coarser of the S and T rows across the depth axis ) world units. Zero for
+// unused cascades and when the tangent is zero. Vulkan's receiver computes
+// the same from the rows it is handed (interaction_shadow.frag).
+void R_ShadowMapProjectedSunPenumbraScales( const shadowMapProjectedLightState_t &state, float sunPenumbraTan, float scales[SHADOWMAP_PROJECTED_MAX_CASCADES] );
 extern idCVar r_shadowMapDistantNormalOffsetDepth;
 float R_ShadowMapQuantizeCascadeExtent( float rawExtent, int tileSize );
+float R_ShadowMapQuantizeCascadeExtent( float rawExtent, int tileSize, float ladder );
 float R_ShadowMapSnapCascadeCenter( float rawCenter, float quantizedExtent, int tileSize );
 int R_ShadowMapProjectedStateHash( int hash, const shadowMapProjectedLightState_t &state );
 // pins the stabilization guarantees (shadow plan invariant I5)
 bool R_ShadowMapCascadeStabilitySelfTest( void );
 bool R_ShadowMapCascadeWholeLightSelfTest( void );
+// A cascaded light keeps its cascades when a view slice reaches behind its
+// source plane: the slice is cut where the light begins.
+bool R_ShadowMapCascadeSourcePlaneSelfTest( void );
+// A cascade sized by its slice's bounding sphere keeps its scale while the
+// view turns (r_shadowMapCascadeStableExtent).
+bool R_ShadowMapCascadeTurnSelfTest( void );
 bool R_ShadowMapDistantPointProjectionSelfTest( void );
 bool R_ShadowMapDistantNormalOffsetSelfTest( void );
 bool R_ShadowMapCasterFacesSelfTest( void );

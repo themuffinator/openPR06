@@ -794,6 +794,8 @@ bool StageInto( const StageRequest &request, UpdatePlan &plan, const FetchFn &fe
 			plan.removals.push_back( std::string( GAME_DIR ) + "/" + name );
 		}
 	}
+	// openPR06: upstream openQ4 also retires its split game-sp/game-mp modules
+	// from baseoq4 here (CORE-07); openPR06 has only ever shipped game_<arch>.
 
 	std::filesystem::remove_all( download, ec );
 	return WriteFileAtomically( updateDir / PLAN_FILE, FormatPlan( plan ), result.error );

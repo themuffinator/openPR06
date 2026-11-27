@@ -306,4 +306,10 @@
 	"#str_232510"	"openPR06 è stato aggiornato alla versione %s."
 	"#str_232511"	"Non è stato possibile installare openPR06 %s. openPR06 %s non è cambiato.\n\nAprire la pagina di download per installarlo da te?"
 	"#str_232512"	"openPR06 non è riuscito a riavviarsi dopo l'aggiornamento. Avvialo dalla sua cartella."
+	// VR headset notices (Session_vr.cpp), from openQ4
+	"#str_233504"	"Gioca in VR"
+	"#str_233509"	"Visore VR trovato"
+	"#str_233510"	"Nessun runtime VR installato"
+	"#str_233511"	"Nessun visore VR ha risposto"
+	"#str_233512"	"Visore VR trovato: scegli una Modalità VR per usarlo"
 }

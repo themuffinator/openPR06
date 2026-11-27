@@ -37,6 +37,10 @@ typedef struct shadowMapLightClassification_s {
 // That covers the wide sources too (R_ShadowMapWideSourceAxis) while sunlight
 // is cascaded.
 bool R_ShadowMapUsesDistantPointProjection( const renderLight_t &parms );
+// A parallel light or a distant point light whose map, with
+// r_shadowMapDistantFarShell on, holds every caster by the stencil rule: the
+// faces turned away from the light.
+bool R_ShadowMapLightStoresFarShell( const struct viewLight_s *vLight );
 
 // A wide source: a large point light whose source sits just outside one face
 // of an enormous radius box, the way Quake 4 lights its outdoor areas
@@ -69,7 +73,14 @@ typedef struct shadowMapProjectedFilterSettings_s {
 	float				pcssLightRadius;
 	float				pcssMaxRadius;
 	float				effectiveFilterRadius;
+	// Tangent of half the apparent diameter of a sun-like light (parallel, or
+	// a distant point source), for PCSS-lite; 0 for every other light, which
+	// keeps the point-source penumbra rule (r_shadowMapSunAngle).
+	float				sunPenumbraTan;
 } shadowMapProjectedFilterSettings_t;
+// The largest tangent the settings hand out: Vulkan carries it in the
+// fraction of a slot whose whole part is a flag.
+static const float SHADOWMAP_SUN_PENUMBRA_MAX_TAN = 0.25f;
 
 // Point receivers express depth bias in normalized radial depth and normal
 // offset in cube texels.  On very large authored lights both therefore grow
@@ -166,9 +177,18 @@ static const int SHADOWMAP_POINT_CACHE_MAX_SLOTS = 96;
 // Slots that are always available, so a large cube size cannot starve the
 // cache below what earlier builds offered.
 static const int SHADOWMAP_POINT_CACHE_MIN_BUDGET_SLOTS = 12;
+// The memory point cubes of this face size may fill, in MiB.
+// r_shadowMapPointCacheMegs is the figure for cubes of up to 512 texels a side,
+// which every shadow level but the top one uses: 512 MiB holds all 64 of them.
+// A 1024 cube has four times the texels, and the same figure held 21: half of
+// a dense view's lights, the rest rendered again every frame. Larger cubes get
+// three times the figure, 1536 MiB at the default, which holds 64 at 1024.
+static const int SHADOWMAP_POINT_CACHE_BASE_FACE_SIZE = 512;
+static const int SHADOWMAP_POINT_CACHE_LARGE_CUBE_BUDGET_SCALE = 3;
+int R_ShadowMapPointCacheBudgetMegsFor( int configuredMegs, int faceSize );
 // Usable point cache slots for a cube of faceSize texels whose six faces
 // cost bytesPerTexel each: r_shadowMapPointCacheSize, bounded by
-// r_shadowMapPointCacheMegs and by maxSlots.
+// r_shadowMapPointCacheMegs (scaled for the cube size) and by maxSlots.
 int R_ShadowMapPointCacheSlotLimit( int faceSize, int bytesPerTexel,
 	int maxSlots );
 // The pure form, for the self-test.
@@ -229,6 +249,10 @@ bool R_ShadowMapOwnershipsShareResidentDepth( bool localStaticCasters, bool loca
 // The pure form, for the self-test: the window in frames for a smoothed frame
 // interval in milliseconds.
 int R_ShadowMapDynamicCasterFramesFor( float frameMsec );
+// Frames an unused resident map is kept: r_shadowMapResidentFrames counted at
+// 60 frames a second and scaled up to the rate frames are being drawn at.
+int R_ShadowMapResidentFramesFor( int configuredFrames, float frameMsec );
+int R_ShadowMapResidentFrames( void );
 // The projected atlas is shared by every projected, parallel and distant point
 // light of a view, and each of them asks for one block per receiver ownership.
 // Blocks are placed as power-of-two squares inside the largest power-of-two

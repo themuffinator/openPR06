@@ -306,4 +306,10 @@
 	"#str_232510"	"openPR06 se ha actualizado a %s."
 	"#str_232511"	"No se pudo instalar openPR06 %s. openPR06 %s no ha cambiado.\n\n¿Abrir la página de descarga para instalarlo tú mismo?"
 	"#str_232512"	"openPR06 no pudo volver a iniciarse tras actualizarse. Inícialo desde su carpeta."
+	// VR headset notices (Session_vr.cpp), from openQ4
+	"#str_233504"	"Jugar en RV"
+	"#str_233509"	"Casco de RV detectado"
+	"#str_233510"	"No hay ningún entorno de RV instalado"
+	"#str_233511"	"Ningún casco de RV ha respondido"
+	"#str_233512"	"Casco de RV detectado: elige un Modo RV para usarlo"
 }

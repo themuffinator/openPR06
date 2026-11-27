@@ -308,6 +308,53 @@ void Transition(const std::string& path, const std::string& enter, const std::st
 	runtime.CloseDocument(); runtime.Shutdown();
 }
 
+// A page's arrival and departure as the session plays them: `enter` (the
+// page's opening, such as onActivate) and then `leave` (its closing, such as
+// onDeactivate), each followed by `frames` 60 Hz frames, `cycles` times. The
+// frames measured are the ones that animate, the page's opening and closing
+// transitions, where the menus stutter if they cost too much.
+void Transition(const std::string& path, const std::string& enter, const std::string& leave, int cycles, int frames) {
+	std::ifstream file(path,std::ios::binary);
+	if (!file) throw std::runtime_error("Cannot read transition document");
+	const std::string source{std::istreambuf_iterator<char>(file),{}};
+	Document model; std::vector<Diagnostic> diagnostics;
+	if (!model.Load(source,diagnostics)) throw std::runtime_error("Invalid transition document");
+	ScreenHost host; Runtime runtime(host);
+	if (!runtime.LoadDocument(source,path,diagnostics)) throw std::runtime_error("Cannot load transition runtime document");
+	Viewport viewport; viewport.width = 1280; viewport.height = 720;
+	viewport.canvasHeight = static_cast<float>(model.Model().canvasHeight);
+	Runtime::EventEffects effects; std::string error;
+	double now = 1;
+	if (runtime.HasEvent("onInit") && !runtime.RunEvent("onInit",now,effects,error)) throw std::runtime_error("onInit: "+error);
+	for (int i = 0; i <= 60; ++i) runtime.Frame(viewport,now += 1/60.0);
+	std::vector<double> enterMs, leaveMs, layout, render, compile, paths, layoutUpdates;
+	for (int cycle = 0; cycle < cycles; ++cycle) {
+		for (const auto* event : {&enter,&leave}) {
+			if (!runtime.RunEvent(*event,now,effects,error)) throw std::runtime_error(*event+": "+error);
+			for (int i = 0; i < frames; ++i) {
+				runtime.Frame(viewport,now += 1/60.0);
+				// The first cycle compiles the frame's artwork at each size.
+				if (cycle == 0) continue;
+				const auto stats = runtime.Statistics();
+				(event == &enter ? enterMs : leaveMs).push_back(stats.frameMilliseconds);
+				layout.push_back(stats.layoutMilliseconds); render.push_back(stats.renderMilliseconds);
+				compile.push_back(stats.vectorCompileMilliseconds); paths.push_back(static_cast<double>(stats.vectorPathsCompiled));
+				layoutUpdates.push_back(static_cast<double>(stats.layoutUpdates));
+			}
+		}
+	}
+	if (!host.error.empty()) throw std::runtime_error("Transition document logged an error: "+host.error);
+	if (enterMs.empty()) throw std::runtime_error("Transition needs at least two cycles");
+	double updates = 0; for (double value : layoutUpdates) updates += value;
+	std::printf("{\"scenario\":\"transition\",\"document\":\"%s\",\"enter\":\"%s\",\"leave\":\"%s\",\"cycles\":%d,\"frames\":%d,"
+		"\"enter_p50_ms\":%.6f,\"enter_p95_ms\":%.6f,\"enter_max_ms\":%.6f,\"leave_p50_ms\":%.6f,\"leave_p95_ms\":%.6f,\"leave_max_ms\":%.6f,"
+		"\"layout_p50_ms\":%.6f,\"render_p50_ms\":%.6f,\"vector_compile_p50_ms\":%.6f,\"paths_compiled_p50\":%.0f,\"layout_updates_mean\":%.3f}\n",
+		path.c_str(),enter.c_str(),leave.c_str(),cycles,frames,Percentile(enterMs,.5),Percentile(enterMs,.95),Percentile(enterMs,1),
+		Percentile(leaveMs,.5),Percentile(leaveMs,.95),Percentile(leaveMs,1),Percentile(layout,.5),Percentile(render,.5),
+		Percentile(compile,.5),Percentile(paths,.5),updates/layoutUpdates.size());
+	runtime.CloseDocument(); runtime.Shutdown();
+}
+
 // Private committed bytes of this process, for the memory a load retains.
 // Zero where the platform query is not implemented.
 std::uint64_t PrivateBytes() {

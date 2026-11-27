@@ -103,6 +103,7 @@ struct idSessionLocal {
 static void PumpControllerMenuNavigation(idSessionLocal*) {}
 static void Session_SyncPreyOptionsVideoPreset(idUserInterface*) {}  // openPR06: Prey Video preset sync
 static void PumpControllerDetailStick(idSessionLocal*) {}
+static void Session_UpdateVR() {}  // openPR06: VR's question and notices (Session_vr.cpp)
 static void SyncMainMenuSettingsScrollPages(idUserInterface* gui) {
     if(gui)assert(uiManagerLocal.allocations.Find(static_cast<idUserInterfaceManaged*>(gui)));
 }

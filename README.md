@@ -143,6 +143,7 @@ Start with [release status](docs/user/release-status.md): what works today and w
 - **Sam Lantinga and the [SDL contributors](https://github.com/libsdl-org/SDL)**: cross-platform window, display and input support; SDL uses the zlib licence
 - **Chris Robinson and the [OpenAL Soft](https://openal-soft.org/) contributors**: the OpenAL runtime bundled with Windows builds
 - **[Xiph.Org Foundation](https://xiph.org/vorbis/)**: libogg and libvorbis audio codecs
+- **Jean-loup Gailly, Mark Adler and the [zlib-ng contributors](https://github.com/zlib-ng/zlib-ng/tree/2.3.3)**: zlib-licensed inflate and CRC-32 for reading PK4 packs, with run-time SIMD selection; [licence notice](LICENSES/zlib-ng.txt)
 - **Sean Barrett and the [stb_vorbis contributors](https://github.com/nothings/stb/blob/master/stb_vorbis.c)**: MIT/public-domain Vorbis decoding
 - **The [GLEW](https://github.com/nigels-com/glew) team**: OpenGL extension loading
 - **The Khronos Group and [glslang contributors](https://github.com/KhronosGroup/glslang/tree/16.6.0)**: GLSL-to-SPIR-V compiler used by the Vulkan renderer; [licence notice](LICENSES/glslang.txt)

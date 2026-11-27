@@ -699,8 +699,19 @@ format remains a valid fallback. Vulkan 1.3's comparison feature bit prevents
 selecting a generally sampleable format that sampler*Shadow cannot use.
 Preserve candidate priority within each tier, but prefer a linearly filterable
 format before accepting the nearest-filter fallback.
+
+Nothing reads a shadow map's stencil (VK_ShadowMap_UseStencilAttachment), so
+a device without packed 24-bit depth (AMD, Apple) takes plain 32-bit float
+depth before the stencil-carrying form of it: the same depth values in half
+the memory, four bytes a texel instead of eight, which also restores the
+point cache's full slot count under r_shadowMapPointCacheMegs.
 ====================
 */
+static idCVar r_vkShadowDepthFormatTest( "r_vkShadowDepthFormatTest", "0", CVAR_RENDERER | CVAR_INTEGER,
+	"qualification drill: 1 = choose the shadow depth format as a device without packed 24-bit depth does "
+	"(AMD, Apple), 2 = that device's former stencil-carrying choice. Applies when the device is created.",
+	0, 2, idCmdSystem::ArgCompletion_Integer<0,2> );
+
 static void VK_Device_SelectShadowDepthFormat( void ) {
 	vkCtx.shadowDepthFormat = VK_FORMAT_UNDEFINED;
 	vkCtx.shadowDepthHasStencil = false;
@@ -708,12 +719,13 @@ static void VK_Device_SelectShadowDepthFormat( void ) {
 
 	static const VkFormat candidates[] = {
 		VK_FORMAT_D24_UNORM_S8_UINT,
-		VK_FORMAT_D32_SFLOAT_S8_UINT,
 		VK_FORMAT_D32_SFLOAT,
+		VK_FORMAT_D32_SFLOAT_S8_UINT,
 		VK_FORMAT_X8_D24_UNORM_PACK32,
 		VK_FORMAT_D16_UNORM,
 		VK_FORMAT_D16_UNORM_S8_UINT
 	};
+	const int formatTest = r_vkShadowDepthFormatTest.GetInteger();
 	const VkFormatFeatureFlags2 requiredFeatures =
 			VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT |
 			VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT |
@@ -724,6 +736,13 @@ static void VK_Device_SelectShadowDepthFormat( void ) {
 	bool nearestFallbackHasStencil = false;
 
 	for ( int i = 0; i < (int)( sizeof( candidates ) / sizeof( candidates[ 0 ] ) ); i++ ) {
+		// The drill hides what such a device lacks; 2 also hides the format
+		// it now prefers, which leaves its former choice.
+		if ( formatTest != 0 && ( candidates[ i ] == VK_FORMAT_D24_UNORM_S8_UINT
+				|| candidates[ i ] == VK_FORMAT_X8_D24_UNORM_PACK32
+				|| ( formatTest == 2 && candidates[ i ] == VK_FORMAT_D32_SFLOAT ) ) ) {
+			continue;
+		}
 		VkFormatProperties3 props3;
 		memset( &props3, 0, sizeof( props3 ) );
 		props3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
@@ -1116,6 +1135,25 @@ static bool VK_Device_CreateSwapchain( void ) {
 	sci.presentMode = presentMode;
 	sci.clipped = VK_TRUE;
 	sci.oldSwapchain = vkCtx.swapchain;
+#if defined( VK_USE_PLATFORM_WIN32_KHR )
+	// Exclusive Fullscreen leaves the choice to the driver as before; every
+	// other mode, a window that merely covers the display included, refuses
+	// exclusive control so switching away stays instant. Read from the window
+	// itself: the swapchain is rebuilt after every window-mode change.
+	VkSurfaceFullScreenExclusiveInfoEXT fullScreenExclusive;
+	memset( &fullScreenExclusive, 0, sizeof( fullScreenExclusive ) );
+	if ( vkCtx.fullScreenExclusiveControl ) {
+		renderWindowState_t windowState;
+		memset( &windowState, 0, sizeof( windowState ) );
+		const bool exclusiveWindow = vkWindowServices != NULL && vkWindowServices->QueryWindowState != NULL
+				&& vkWindowServices->QueryWindowState( &windowState )
+				&& windowState.fullscreen && !windowState.fullscreenDesktop;
+		fullScreenExclusive.sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT;
+		fullScreenExclusive.fullScreenExclusive = exclusiveWindow
+				? VK_FULL_SCREEN_EXCLUSIVE_DEFAULT_EXT : VK_FULL_SCREEN_EXCLUSIVE_DISALLOWED_EXT;
+		sci.pNext = &fullScreenExclusive;
+	}
+#endif
 
 	VkSwapchainKHR newSwapchain = VK_NULL_HANDLE;
 	// creating with oldSwapchain retires it: the present-timing waiter lets go first
@@ -1240,6 +1278,10 @@ void VK_Device_CountDrawIndexed( int indexCount, int vertexCount ) {
 	backEnd.pc.c_drawElements++;
 	backEnd.pc.c_drawIndexes += indexCount;
 	backEnd.pc.c_drawVertexes += vertexCount;
+}
+
+uint32_t VK_Device_DrawIndexCount( int numIndexes ) {
+	return static_cast<uint32_t>( r_singleTriangle.GetBool() && numIndexes > 3 ? 3 : numIndexes );
 }
 
 /*
@@ -1696,14 +1738,29 @@ bool VK_Device_Init( const renderWindowServices_s *windowServices, uint32_t firs
 	// harmless nowhere -- so it is strictly presence-gated. The flag bit is
 	// only ever set together with the extension
 	// (VUID-VkInstanceCreateInfo-flags-06559).
+	// VK_KHR_get_surface_capabilities2 is what VK_EXT_full_screen_exclusive
+	// builds on; it is only wanted where that extension exists (Windows).
 	static const char *const optionalInstanceExtensions[] = {
-		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, VK_EXT_DEBUG_UTILS_EXTENSION_NAME
+		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME
 	};
-	bool loaderExtensions[ 2 ] = { false, false };
-	if ( !VK_Device_FindInstanceExtensions( NULL, optionalInstanceExtensions, 2, loaderExtensions ) ) {
+	bool loaderExtensions[ 3 ] = { false, false, false };
+	if ( !VK_Device_FindInstanceExtensions( NULL, optionalInstanceExtensions, 3, loaderExtensions ) ) {
 		return false;
 	}
 	const bool portabilityEnumeration = loaderExtensions[ 0 ];
+#if defined( VK_USE_PLATFORM_WIN32_KHR )
+	if ( loaderExtensions[ 2 ] ) {
+		bool listed = false;
+		for ( int i = 0; i < extensions.Num(); i++ ) {
+			if ( idStr::Cmp( extensions[ i ], VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME ) == 0 ) { listed = true; }
+		}
+		if ( !listed ) {
+			extensions.Append( VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME );
+		}
+		vkCtx.surfaceCapabilities2 = true;
+	}
+#endif
 
 	const char *validationLayer = "VK_LAYER_KHRONOS_validation";
 	const bool wantValidation = r_vkValidation.GetBool();
@@ -1920,9 +1977,33 @@ bool VK_Device_Init( const renderWindowServices_s *windowServices, uint32_t firs
 	// enabled when they advertise it, and their optional subset features read
 	// back through the chained feature struct. Native drivers advertise neither,
 	// and every portability capability then stays at its permissive default.
-	const char *deviceExtensions[ 7 ];
+	const char *deviceExtensions[ 12 ];
 	uint32_t deviceExtensionCount = 0;
 	deviceExtensions[ deviceExtensionCount++ ] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+#if defined( VK_USE_PLATFORM_WIN32_KHR )
+	// A borderless or desktop-fullscreen window covers the display, and some
+	// drivers then take exclusive control of it on their own: Alt+Tab has to
+	// give that back, which is slow and blanks the screen. With the extension
+	// every swapchain says which kind of window it is (VK_Device_CreateSwapchain).
+	vkCtx.fullScreenExclusiveControl = vkCtx.surfaceCapabilities2 && selected.hasFullScreenExclusive;
+	if ( vkCtx.fullScreenExclusiveControl ) {
+		deviceExtensions[ deviceExtensionCount++ ] = VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME;
+	}
+	common->Printf( "Vulkan: exclusive fullscreen %s\n", vkCtx.fullScreenExclusiveControl
+			? "only in Exclusive Fullscreen (VK_EXT_full_screen_exclusive)"
+			: "left to the driver (no VK_EXT_full_screen_exclusive)" );
+#endif
+	// A point shadow cube is drawn as one six-layer target where the caster
+	// vertex shader may name the layer (r_shadowMapPointLayered). Enabling
+	// the extension enables both of its features; without it the cube keeps
+	// one rendering scope a face.
+	vkCtx.shaderViewportIndexLayer = selected.hasShaderViewportIndexLayer;
+	if ( vkCtx.shaderViewportIndexLayer ) {
+		deviceExtensions[ deviceExtensionCount++ ] = VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME;
+	}
+	common->Printf( "Vulkan: point shadow cubes %s\n", vkCtx.shaderViewportIndexLayer
+			? "draw as one layered target (VK_EXT_shader_viewport_index_layer)"
+			: "draw one face at a time (no VK_EXT_shader_viewport_index_layer)" );
 	// The driver's real heap budgets, so textures are reduced before video
 	// memory runs out rather than after (vk_Image.cpp, #217/#231).
 	vkCtx.memoryBudgetEnabled = selected.hasMemoryBudget;

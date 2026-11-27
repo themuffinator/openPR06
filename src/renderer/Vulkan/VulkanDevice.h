@@ -118,6 +118,7 @@ typedef struct vkDeviceContext_s {
 	// All multisample pipelines and depth-image transitions use the same pattern.
 	VkSampleCountFlags sampleLocationCounts;
 	bool				depthClampSupported;
+	bool				shaderViewportIndexLayer;	// a vertex shader may write gl_Layer
 	// Clip-space z follows OpenGL's [-w, w] in hardware
 	// (VK_EXT_depth_clip_control negativeOneToOne on every graphics pipeline):
 	// projections are then used unmodified, and window depth rounds exactly as
@@ -144,6 +145,11 @@ typedef struct vkDeviceContext_s {
 	// (the texture video-memory budget in vk_Image.cpp); otherwise VMA
 	// estimates 80% of each heap against its own allocations.
 	bool				memoryBudgetEnabled;
+	// Windows: VK_KHR_get_surface_capabilities2 is enabled on the instance, and
+	// VK_EXT_full_screen_exclusive on the device, so each swapchain refuses
+	// driver-chosen exclusive control outside Exclusive Fullscreen.
+	bool				surfaceCapabilities2;
+	bool				fullScreenExclusiveControl;
 	// VK_FORMAT_R5G6B5_UNORM_PACK16 backs the light projection/falloff cookies.
 	// Metal only exposes the packed 16-bit formats on Apple GPUs, so this is
 	// probed and the image path widens to RGBA8 when it is missing.
@@ -302,6 +308,10 @@ void	VK_Device_BlockPresentation( renderDisplayOutcome_t outcome, VkResult error
 // workload. Shadow-volume draws keep their own c_shadow* counters, which
 // is also what GL does, so they must not be passed here.
 void	VK_Device_CountDrawIndexed( int indexCount, int vertexCount );
+// The index count a surface's draw submits: all of it, or one triangle under
+// r_singleTriangle, as RB_DrawElementsWithCounters draws on OpenGL (the
+// benchmark command's "single tri" row measures the frame without its fill).
+uint32_t	VK_Device_DrawIndexCount( int numIndexes );
 
 // per-heap VMA usage, budget and live allocations (gfxInfo,
 // rendererVulkanMemoryInfo)

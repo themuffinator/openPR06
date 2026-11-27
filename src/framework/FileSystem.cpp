@@ -2703,6 +2703,7 @@ void idFileSystemLocal::CreateOSPath( const char *OSPath ) {
 	}
 
 	idStr path( OSPath );
+
 	for( ofs = &path[ 1 ]; *ofs ; ofs++ ) {
 		if ( *ofs == PATHSEPERATOR_CHAR ) {	
 			// create the directory, once per process: writing a generated cache
@@ -6076,6 +6077,8 @@ void idFileSystemLocal::FreePack( pack_t *pack ) const {
 	}
 
 	if ( pack->handle ) {
+		// idle member-read handles of this pack, and any a reader still holds,
+		// must not be handed to the next pack opened at the same path
 		unzReleaseIdleHandles( pack->pakFilename );
 		unzClose( pack->handle );
 	}
@@ -8341,7 +8344,7 @@ idFile_InZip * idFileSystemLocal::ReadFileFromZip( pack_t *pak, fileInPack_t *pa
 	FILE *			fp;
 	idFile_InZip *file = new idFile_InZip();
 
-	// open a new file on the pakfile
+	// open a new file on the pakfile (or take an idle handle of the same pack)
 	unzSetHandleReuse( fs_reusePackHandles.GetBool() );
 	file->z = unzReOpen( pak->pakFilename, pak->handle );
 	if ( file->z == NULL ) {
@@ -9514,6 +9517,38 @@ static void FS_AppendGameModuleSearchPath( idStr &searchPaths, const idStr &root
 	searchPaths += candidatePath;
 }
 
+// One game module, game_<arch>, replaced the split game-sp_<arch> and
+// game-mp_<arch> modules (CORE-07). A mod built for the split still ships them
+// and no game_<arch>, so the lookup falls back to baseoq4's module and the mod
+// runs on openQ4's game code. Say so once per mod, rather than only in a
+// developer print, so its author knows the game code needs rebuilding.
+static void FS_WarnRetiredModGameModules( idFileSystemLocal *fileSystemLocal, const idStr *roots, int numRoots, const char *gameDir, const char *dllName ) {
+	static idStr warnedGameDir;
+	// dllName is the platform file name: game_x64.dll, game_x64.so,
+	// libgame_arm64.so, game_universal2.dylib
+	const idStr current = dllName;
+	const int stem = current.Find( "game_" );
+	if ( stem < 0 || warnedGameDir.Icmp( gameDir ) == 0 ) {
+		return;
+	}
+	static const char *const retiredStems[] = { "game-sp_", "game-mp_" };
+	for ( int p = 0; p < (int)( sizeof( retiredStems ) / sizeof( retiredStems[0] ) ); p++ ) {
+		const idStr retiredName = current.Left( stem ) + retiredStems[p] + current.Right( current.Length() - stem - 5 );
+		for ( int i = 0; i < numRoots; i++ ) {
+			idStr retiredPath;
+			idFile *retired = FS_OpenGameModuleFromExeDir( fileSystemLocal, roots[i], gameDir, retiredName, retiredPath );
+			if ( retired ) {
+				fileSystemLocal->CloseFile( retired );
+				warnedGameDir = gameDir;
+				common->Warning( "Mod '%s' ships '%s', a game module from before one module served both modes. "
+					"openPR06 loads '%s' only, and this mod has none, so it runs on %s's game code; "
+					"rebuild the mod's game code as '%s'.", gameDir, retiredName.c_str(), dllName, OPENQ4_GAMEDIR, dllName );
+				return;
+			}
+		}
+	}
+}
+
 /*
 =================
 idFileSystemLocal::FindDLL
@@ -9590,6 +9625,7 @@ void idFileSystemLocal::FindDLL( const char *name, char _dllPath[ MAX_OSPATH ], 
 	}
 
 	if ( !dllFile && idStr::Icmp( moduleGameDir, OPENQ4_GAMEDIR ) != 0 ) {
+		FS_WarnRetiredModGameModules( this, moduleSearchRoots, numModuleSearchRoots, moduleGameDir, dllName );
 		for ( int i = 0; !dllFile && i < numModuleSearchRoots; i++ ) {
 			FS_AppendGameModuleSearchPath( attemptedModulePaths, moduleSearchRoots[i], OPENQ4_GAMEDIR, dllName );
 			dllFile = FS_OpenGameModuleFromExeDir( this, moduleSearchRoots[i], OPENQ4_GAMEDIR, dllName, dllPath );

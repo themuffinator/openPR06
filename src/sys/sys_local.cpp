@@ -440,7 +440,6 @@ void idSysLocal::DLL_GetFileName( const char *baseName, char *dllName, int maxLe
 	// as-is; everything else keeps the legacy CPUSTRING suffix behavior
 	const bool explicitGameModuleName =
 		idStr::Icmpn( baseName, "game_", 5 ) == 0 ||
-		idStr::Icmpn( baseName, "game-", 5 ) == 0 ||
 		idStr::Icmpn( baseName, "renderer-", 9 ) == 0;
 #ifdef _WIN32
 	if ( explicitGameModuleName ) {

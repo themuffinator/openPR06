@@ -615,9 +615,11 @@ Hash ComputeHash( const void *data, const std::size_t bytes ) {
 	if ( data == nullptr && bytes != 0 ) {
 		return Hash{};
 	}
-	// openPR06: the idlib SHA-256 uses the CPU's SHA extensions when present
-	// (same digest). Every generated-cache read and write hashes the whole
-	// payload twice, so the portable class here was a visible share of a warm load.
+	// The idlib SHA-256 uses the x86 SHA extensions when the CPU has them, or
+	// the Armv8 SHA-256 instructions where the build baseline guarantees them,
+	// and its portable compression otherwise (same digest everywhere). Every
+	// generated-cache read and write hashes the whole payload twice, so a
+	// private portable implementation was a visible share of a warm load.
 	Hash hash{};
 	static_assert( sizeof( hash ) == idCrypto::SHA256_DIGEST_BYTES, "digest size" );
 	idCrypto::SHA256( bytes != 0 ? data : "", bytes, hash.data() );

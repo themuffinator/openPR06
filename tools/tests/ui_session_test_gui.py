@@ -148,6 +148,7 @@ static void ClearMenuControllerRepeatState() {}
 static void Session_SyncPreyOptionsVideoPreset(idUserInterface*) { assert(false); }
 static void PumpControllerMenuNavigation(idSessionLocal*) {}
 static void PumpControllerDetailStick(idSessionLocal*) {}
+static void Session_UpdateVR() {}  // openPR06: VR's question and notices (Session_vr.cpp)
 static std::vector<idUserInterface*> synchronized;
 static void SyncMainMenuSettingsScrollPages(idUserInterface* gui) {
     assert(!gui || !gui->retired);

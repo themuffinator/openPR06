@@ -81,6 +81,7 @@ public:
 	virtual bool				WriteToSaveGame( idFile *savefile ) const;
 	virtual bool				ReadFromSaveGame( idFile *savefile );
 	virtual bool				ReadFromSaveGameWithLayout( idFile *savefile, const char *layoutPath, int &restoredWindowValues );
+	virtual int					HoverControl( void ) override;
 	virtual void				SetKeyBindingNames( void );
 	virtual bool				IsUniqued() const { return uniqued; };
 	virtual void				SetUniqued( bool b ) { uniqued = b; };
@@ -168,6 +169,10 @@ private:
 	// The match summary's exit prompt key last published (-1 none yet); -2
 	// for every other GUI.
 	int							summaryExitKey = -2;
+	// HoverControl: the control the cursor last rested on (compared, never followed)
+	// and how many times it moved onto another
+	const idWindow *			hoverControl = nullptr;
+	int							hoverControlCount = 0;
 public:
 	// The Remastered layout draws this stock HUD in place of its own windows.
 	bool                        RemasteredActive() const;
@@ -234,6 +239,11 @@ private:
 
 	float						cursorX;
 	float						cursorY;
+	// openQ4: false until something places the cursor. A menu GUI's first
+	// activation then starts it at the canvas origin (the aspect-expanded
+	// top-left), not at 0,0 of the centred 4:3 virtual screen.
+	bool						cursorPlaced = false;
+	void						GetCursorBounds( float &minX, float &minY, float &maxX, float &maxY ) const;
 	void						ClampCursor( void );
 
 	int							time;

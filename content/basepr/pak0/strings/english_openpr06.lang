@@ -313,4 +313,10 @@
 	"#str_232510"	"openPR06 has been updated to %s."
 	"#str_232511"	"openPR06 %s could not be installed, so openPR06 %s is unchanged.\n\nOpen the download page to install it yourself?"
 	"#str_232512"	"openPR06 could not start again after updating. Start it from its folder."
+	// VR headset notices (Session_vr.cpp), from openQ4
+	"#str_233504"	"Play in VR"
+	"#str_233509"	"VR headset found"
+	"#str_233510"	"No VR runtime is installed"
+	"#str_233511"	"No VR headset answered"
+	"#str_233512"	"VR headset found: choose a VR Mode to use it"
 }

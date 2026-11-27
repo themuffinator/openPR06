@@ -719,7 +719,7 @@ def validate_decl_source_scanner_contract() -> None:
 
 def validate_renderer_module_fail_closed_contract() -> None:
     api = read(ROOT / "src" / "renderer" / "RenderModuleAPI.h")
-    require(api, "#define RENDER_API_VERSION\t\t\t39", "current renderer ABI")
+    require(api, "#define RENDER_API_VERSION\t\t\t40", "current renderer ABI")
 
     loader = read(ROOT / "src" / "renderer" / "RendererModule.cpp")
     require(

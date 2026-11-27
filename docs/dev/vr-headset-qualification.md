@@ -80,6 +80,13 @@ here: it waits on the AND-05 distribution decision.
 | 3.17 | On Windows Mixed Reality controllers, press each touchpad in its upper and lower half; click both thumbsticks. | Upper half: crouch (right), flashlight (left). Lower half: jump (right), reload (left). The thumbstick clicks keep their own actions. |
 | 3.18 | With a mirror or your shadow in view, point the gun straight up, then straight down, rolling your wrist. | Your character in the mirror or shadow keeps facing one way; it no longer spins on the spot. |
 | 3.19 | Set **Weapon Hand** to Left. Hold each gun close to your face, turn it, and let go of it with the right hand and take hold again. | A left hand grips each gun as the right hand did, the right hand supports it and follows its controller when free; no arm is dark, see-through or inside out, and the gun's displays read the right way round. |
+| 3.20 | Single player. Push the gun hand through a wall, a closed door and a crate, by reaching out and by stepping up to it in room scale, and fire the machine gun, the shotgun, the lightning gun and the gauntlet. Then stand back a little, reach through again and fire one rocket. Repeat while physically crouched under something low, and once in multiplayer. | The laser dot sits on the near face of what the gun went into. Bullets, pellets and the beam strike that face, the tracer starts on your side, and nothing beyond is hit. The rocket bursts on that face and its blast reaches you. Multiplayer shots still leave the eye and land on the dot. |
+| 3.21 | Let an enemy hit you from your left, your right and straight ahead; then turn your head well to one side and take a hit from where your body faces. | The hand on the hit's side vibrates clearly more than the other, judged from where your head faces; a hit from ahead shakes both alike. Note whether the difference is easy to feel. |
+| 3.22 | Fire a rocket at a wall a few metres away, then at one far off; stand near an exploding barrel; in `game/airdefense1` watch the battle's explosions. | Each nearby blast rumbles both hands with its screen shake and sound, softer the farther it is; distant ones do not. Note whether any blast feels too strong or misses. |
+| 3.23 | Reload the machine gun, shotgun, nailgun, hyperblaster and rocket launcher, and in `q4xbase` the goob gun. | The off hand ticks with each reload sound (magazine out, magazine in, bolt, each shell), in time with it. A gun whose reload makes no sound (the spike gun) stays still. |
+| 3.24 | Switch weapons several times, then drop off a ledge of about two metres, a bigger fall, and jump on level ground. | The weapon hand feels each gun come up; both hands jolt on landing, harder for the bigger fall; an ordinary jump stays still. |
+| 3.25 | Set `vr_hapticEvents 0` and repeat 3.22 to 3.24, then fire and take a hit. | Blasts, reloads, draws and landings stop; shots and hits still vibrate. Set it back to 1. |
+| 3.26 | With **Your Body** on With Arms, hold the off hand out with its index finger pointing, and watch where the drawn fingertip is against your own. Repeat left-handed. | The drawn index fingertip is within about 2 cm of where your real fingertip is, in both hands; note the offset in the report if not. |
 
 ## 4. Body, space and movement (VR-02, VR-03)
 
@@ -117,10 +124,13 @@ here: it waits on the AND-05 distribution decision.
 | # | Do this | Pass when |
 | --- | --- | --- |
 | 6.1 | Point at every main-menu item and every Settings tab and row, and pull the trigger. | Every one is reachable and responds; the weapon-hand and off-hand grips step between tabs. |
-| 6.2 | Read the HUD, objective text and a terminal screen. | Text is sharp and readable at the default HUD distance and width. |
+| 6.2 | Read the HUD (Status Display set to HUD), objective text and a terminal screen; the wrist displays are 8.13-8.18. | Text is sharp and readable at the default HUD distance and width. |
 | 6.3 | In single player, point the weapon hand at a door panel and a lift call screen and pull the trigger. | The cursor sits where the laser meets the screen and the screen responds. |
 | 6.4 | In multiplayer, look at the objective markers in CTF (`mp/q4ctf1`). | Markers sit at HUD depth, follow your head and stay inside the HUD. |
 | 6.5 | In multiplayer, hit another player (or `testHudOverlays`) and watch the damage number. | The number rises from the player you hit, not below or beside them. |
+| 6.6 | In single player, press a door panel and a lift call with the off hand's fingertip (airdefense2 has a lift call by its first lift). Then rest the fingertip a few centimetres from the screen for ten seconds. | The cursor follows the fingertip once it is a few centimetres away; one poke is one click with a firm tick; resting near the screen, holding still or with a natural tremor, clicks nothing. Note whether the contact point feels early or late. |
+| 6.7 | Repeat 6.6 with **Your Body** on Legs and Torso, with **Weapon Hand** set to Left, and with no weapon in hand (the weapon hand then presses). In The Awakening (`q4xbase`), press a lift call in Prison with the blaster in hand, then with the freeze gun. | Every case presses where the fingertip meets the screen; with the body's arms off, and with the freeze gun (whose support hand stays on the gun), the press point is a little ahead of the controller. |
+| 6.8 | Sweep the laser, then the fingertip, across a screen with several buttons (a terminal with choices). | The hand ticks lightly once per new button and not while the cursor stays on one; a click or a press ticks more firmly. `vr_menuHaptics 0` stops the ticks. |
 
 ## 7. Temporal anti-aliasing by eye (VR-05)
 
@@ -129,3 +139,32 @@ here: it waits on the AND-05 distribution decision.
 | 7.1 | Set `r_temporalAA 1`, look at railings and distant edges, standing still. | Edges settle in both eyes with no shimmer and no ghosting between the eyes. |
 | 7.2 | Turn your head fast, and strafe past a fence. | No smearing trails or double images; detail returns within a moment. |
 | 7.3 | Set `r_temporalAA 0`. | The image is unchanged apart from edges, with no flashes when switching. |
+
+## 8. Detection, VR Mode and the VR menus (VR-08, VR-09)
+
+Run the first four with each runtime you have (SteamVR, Meta Quest Link,
+Windows Mixed Reality, Monado, Virtual Desktop), and note the runtime and
+version in the report. The log's `VR_RUNTIME`, `VR_MODE`, `VR_OFFER` and
+`VR_DETECT` lines say what openQ4 found and decided.
+
+| # | Do this | Pass when |
+| --- | --- | --- |
+| 8.1 | With VR Mode off and the runtime not running, start openQ4. | The runtime does not start (no SteamVR window); the log names the runtime (`VR_RUNTIME source=registry` or `active_runtime.json`). On a profile that never chose, the title asks once whether to play in VR by itself. |
+| 8.2 | Answer **Yes** with the headset connected and awake. | VR starts at once, VR SETUP opens over the title, and the next launch starts in VR. |
+| 8.3 | Set VR Mode to Automatic, switch the headset off (or unplug it), and start openQ4. | The game plays on the desktop within about 20 seconds (`VR_MODE decision=desktop`); note whether the runtime opened its own window or complained. |
+| 8.4 | With Automatic on the desktop, switch the headset on mid-game, open the pause menu and choose **Play in VR** on the notice. | Play never switches by itself; **VR headset found** shows in the menus and Play in VR starts VR (on Vulkan after one renderer restart). |
+| 8.5 | Press **Look for Headset** on the Virtual Reality tab with the headset off, then on. | The notices say no headset answered, then that one was found. |
+| 8.6 | In VR, open the pause menu: VR SETUP, Measure My Height (standing), Recentre View, Turning, Weapon Hand, Comfort Vignette, DONE. | Every row is reachable with the laser and changes what it says; height and recentre take effect where you stand. |
+| 8.7 | Read Settings, Game Options and the pause menu in the headset; click small controls (tab strip, list arrows, sliders). | Text reads comfortably at the floating screen's distance (larger than on the desktop); small targets are easy to hit without hunting. |
+| 8.8 | Type a player name or server address in the headset. | The game's on-screen keyboard opens on the floating screen and the laser types on it; no keyboard opens on the desktop. |
+| 8.9 | With `vr_mirror 1`, open and close menus while someone watches the desktop. | The desktop shows the menu while one is up and the left eye in play. |
+| 8.10 | Repeat 8.6 in The Awakening (`q4xbase`). | VR SETUP opens in the Awakening's pause style and works the same. |
+| 8.11 | In play, press the menu button with your off hand held naturally, then move and steady that hand. | The menu grows out of the off hand onto a panel facing you, the level still around it; it follows a moved hand and stays still while you hold steady; the pointer's beam and dot are easy to put on a button. |
+| 8.12 | Rest the pointer on each pause button and on settings rows. | The button under it grows and lights up at once and the hand ticks once per new control; nothing depends on hovering to appear. |
+| 8.13 | Glance at each wrist in a fight, with Status Display on the wrists (`vr_hudMode 1`, the default). | The off-hand wrist's health and armor figures and the weapon wrist's magazine and reserve read at a glance at arm's length, without squinting or bringing the hand closer; the icons are recognisable; nothing hangs in front of your eyes but captions, hit arcs, the weapon wheel, vehicle HUDs and the multiplayer overlay. |
+| 8.14 | Turn each wrist toward your eyes and away, raise and lower the arms, and hold the gun two-handed and aim down its sights. | Each display stays upright and facing you however the wrist turns; the weapon wrist's sits below the line of the gun; the support hand's dims on the foregrip; neither covers the sights, and one brought close to the face fades away rather than filling the view. |
+| 8.15 | Fire the machinegun dry, reload, switch to the blaster, drop below 25 health, and take hits from either side and behind. | The magazine figure turns amber, then red with RELOAD; the blaster shows the infinity sign; the low-health red pulse is noticeable at the edge of vision; the red arcs round the middle of the view point to each hit. Comfortable, not distracting. |
+| 8.16 | Pick up armor and get a new objective; take on a boss (Makron, Network Guardian). | The pickup and objective lines appear on the off-hand wrist and are noticed in time; the boss's bar shows there while the fight lasts. |
+| 8.17 | Repeat 8.13 left-handed, after Kane is Stroggified (Strogg colours), in The Awakening and in a multiplayer match. | The wrists swap; the Strogg colours read as well as the Marine ones; the multiplayer score, timer and chat stay in front and readable. |
+| 8.18 | Set Status Display to HUD (Virtual Reality tab and VR SETUP). | The whole HUD hangs in front of you again and the wrists are bare; set back, the wrists return. |
+| 8.19 | Open the pause from the off hand and press RESUME, then another button, with the weapon hand's fingertip instead of the trigger; rest the fingertip just in front of a button for a few seconds first. Repeat left-handed. | The pointer follows the fingertip near the panel; a poke presses the button under it once, with a firm tick; resting in front presses nothing. |

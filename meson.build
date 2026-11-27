@@ -793,6 +793,14 @@ if get_option('build_native_tests')
   )
   test('openq4-vr-math-core', openq4_vr_math_core_test, timeout: 30)
 
+  openq4_openxr_runtime_probe_test = executable(
+    'openq4-openxr-runtime-probe-test',
+    files('tools/tests/native/OpenXRRuntimeProbeTest.cpp'),
+    include_directories: root_include_dir,
+    install: false,
+  )
+  test('openq4-openxr-runtime-probe', openq4_openxr_runtime_probe_test, timeout: 30)
+
   openq4_temporal_presentation_core_test = executable(
     'openq4-temporal-presentation-core-test',
     files('tools/tests/native/TemporalPresentationCoreTest.cpp'),
@@ -838,6 +846,18 @@ if get_option('build_native_tests')
   test(
     'openq4-depth-of-field-core',
     openq4_depth_of_field_core_test,
+    timeout: 30,
+  )
+
+  openq4_posed_bounds_core_test = executable(
+    'openq4-posed-bounds-core-test',
+    files('tools/tests/native/PosedBoundsCoreTest.cpp'),
+    include_directories: root_include_dir,
+    install: false,
+  )
+  test(
+    'openq4-posed-bounds-core',
+    openq4_posed_bounds_core_test,
     timeout: 30,
   )
 
@@ -1917,6 +1937,7 @@ if build_engine
 endif
 
 game_sources = []
+game_module_sources = []
 bse_sources = []
 game_idlib_sources = []
 if build_games
@@ -1925,7 +1946,6 @@ if build_games
     meson.project_source_root() / 'tools' / 'build' / 'list_sources.py',
     game_stage_root,
     'src/game',
-    'src/game/Callbacks.cpp',
     'src/game/gamesys/Callbacks.cpp',
     check: true,
   )
@@ -2111,13 +2131,15 @@ if build_engine
   )
 
   # PK4 members inflate through zlib-ng's native zng_* API, so it cannot clash
-  # with a system zlib that another dependency brings in.
-  zlibng_dep = dependency(
+  # with a system zlib that another dependency brings in. The pinned wrap is
+  # always built and linked statically: a system zlib-ng is usually a shared
+  # library, which would add a runtime file to every package and a DT_NEEDED
+  # entry the dedicated-server allowlist rejects. zlib-ng picks its SIMD
+  # inflate and CRC-32 paths at run time on x64 and ARM64.
+  zlibng_dep = subproject(
     'zlib-ng',
-    required: true,
-    fallback: 'zlib-ng',
-    default_options: fallback_opt + ['tests=disabled', 'gzfileop=false'],
-  )
+    default_options: fallback_opt + ['tests=disabled', 'gzfileop=false', 'zlib-compat=false'],
+  ).get_variable('zlib_ng_dep')
 
   # libvorbis calls alloca() and uses M_PI, which glibc hides under strict
   # ISO C11; build it as GNU C11 where the compiler has that mode.
@@ -2567,7 +2589,7 @@ if windows_gl_free_ded
   ]
 endif
 if build_engine and host_system == 'linux'
-  # Keep compile-time OpenAL declarations and the static GLEW/vorbis code used
+  # Keep compile-time OpenAL declarations and the static GLEW/vorbis/zlib-ng code used
   # by the common engine sources, but give the dedicated target no client-side
   # audio, graphics, window-system, or SDL link dependency.
   openal_headers_dep = openal_dep.partial_dependency(
@@ -2870,7 +2892,7 @@ if build_engine
   # The OpenXR session, input and frame loop are client-only for the same
   # reason: the dedicated snapshot above never contains them.
   if build_openxr
-    openq4_engine_sources += files('src/sys/openxr/OpenXRSystem.cpp')
+    openq4_engine_sources += files('src/sys/openxr/OpenXRSystem.cpp', 'src/sys/openxr/OpenXRRuntimeProbe.cpp')
     client_engine_cpp_args += ['-DOPENQ4_OPENXR=1']
   endif
 
@@ -3655,6 +3677,7 @@ install_data('LICENSES/KHRONOS-GLES-MIT.txt', install_dir: install_root_dir / 'l
 install_data('LICENSES/RmlUi.txt', install_dir: install_root_dir / 'licenses')
 install_data('LICENSES/JsonCpp.txt', install_dir: install_root_dir / 'licenses')
 install_data('LICENSES/libtess2.txt', install_dir: install_root_dir / 'licenses')
+install_data('LICENSES/zlib-ng.txt', install_dir: install_root_dir / 'licenses')
 install_data('LICENSES/MD4.txt', install_dir: install_root_dir / 'licenses')
 # Talon UI Condensed (pak0's fonts/talon-ui-condensed.ttf) is under the SIL OFL.
 install_data('LICENSES/OFL-1.1.txt', install_dir: install_root_dir / 'licenses')

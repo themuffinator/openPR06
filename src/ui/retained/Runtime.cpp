@@ -1958,13 +1958,13 @@ struct Runtime::Impl {
 	bool focusLayoutVisible = false;
 	std::vector<std::string> controls;
 	// Every control but a button: their views paint what a state change
-	// changed, and a shown one rules out replaying a recorded frame.
+	// changed, and a shown one replays a recorded frame only at rest.
 	std::vector<Rml::Element*> layoutWidgets;
 	// Number and text fields: an editor's caret blinks.
 	std::vector<std::pair<Rml::Element*,std::string>> editableWidgets;
-	// openPR06: whether the last frame found shown widgets not at rest
-	// (WidgetsAtRest), and whether that or the frame before did: frame replay
-	// waits for two resting frames.
+	// Whether the last frame found shown widgets not at rest (WidgetsAtRest),
+	// and whether that frame or the one before did: a page with shown widgets
+	// replays a recorded frame only after two resting frames.
 	bool widgetsLive = false, widgetsReplayBlocked = false;
 	std::uint64_t valuePaintRevision = ~std::uint64_t{0}; // The state revision the value widgets last checked.
 	double rmlUpdateDue = 0; // When RmlUi last asked to be updated again (runtime seconds).
@@ -2036,6 +2036,26 @@ struct Runtime::Impl {
 	bool detailByPointer = false;
 	float detailLeft = 0, detailTop = 0;
 	bool detailPlaced = false;
+	// The tooltip (DocumentModel::tooltip): the control it would describe and
+	// whether the pointer chose it, when that control became the subject,
+	// whether one shows and when one last showed, whether input quieted it,
+	// whether this subject was reached within a group (a tooltip shown
+	// moments before, so this one replaces it at once), and the card's last
+	// placement relative to its containing block.
+	std::string tooltipSubject;
+	bool tooltipByPointer = false, tooltipShown = false, tooltipQuiet = false, tooltipGroup = false, tooltipPlaced = false;
+	// Focus shows tooltips only once a key or button has moved it: a page
+	// opening on its first control shows none to a player at the mouse.
+	bool tooltipKeyed = false;
+	double tooltipSince = 0, tooltipHidden = -std::numeric_limits<double>::infinity();
+	float tooltipLeft = 0, tooltipTop = 0;
+	static constexpr double TooltipPointerSeconds = 0.3, TooltipFocusSeconds = 0.5, TooltipGroupSeconds = 0.3;
+	// Input hides a tooltip until the subject changes, and ends its group.
+	void QuietTooltip() { tooltipQuiet = true; tooltipHidden = -std::numeric_limits<double>::infinity(); }
+	void ResetTooltip() {
+		tooltipSubject.clear(); tooltipByPointer = tooltipShown = tooltipQuiet = tooltipGroup = tooltipPlaced = tooltipKeyed = false;
+		tooltipSince = 0; tooltipHidden = -std::numeric_limits<double>::infinity();
+	}
 	// A program's focus request that the current layout could not take: its
 	// control appears with the same state change. The next frame's layout
 	// takes it, or it lapses.
@@ -2102,6 +2122,9 @@ struct Runtime::Impl {
 		// and whether they let input through (display and pointer-events).
 		PropertyKey display,pointerEvents;
 		bool presented=true;
+		// Whether presented was read at the eligibility cache's revisions; a
+		// branch under a refused ancestor skips the read and goes stale.
+		bool presentedCurrent=false;
 		std::vector<InteractionBranch> children;
 	};
 	InteractionBranch inputBranches,modalBranches;
@@ -2369,14 +2392,25 @@ struct Runtime::Impl {
 	void CollectInputEligibility(InteractionBranch& branch, bool inherited, bool reread) {
 		if (!branch.node) return;
 		const auto& node=*branch.node;
-		if (reread) {
-			const auto* display = PropertyPointer(state,motion,branch.display);
-			const auto* events = PropertyPointer(state,motion,branch.pointerEvents);
-			branch.presented = (!display || display->text != "none") && (!events || events->text != "none");
+		// Under a branch that already refuses input nothing is allowed, so a
+		// refused subtree (a large page's hidden tabs) skips its lookups. Its
+		// cached values are marked stale instead, and are read again once an
+		// ancestor lets input through (a mask's area can change at the same
+		// revisions).
+		bool allowed = false;
+		if (inherited) {
+			if (reread || !branch.presentedCurrent) {
+				const auto* display = PropertyPointer(state,motion,branch.display);
+				const auto* events = PropertyPointer(state,motion,branch.pointerEvents);
+				branch.presented = (!display || display->text != "none") && (!events || events->text != "none");
+				branch.presentedCurrent = true;
+			}
+			auto* element = branch.element;
+			const bool maskArea = !node.mask || (element && static_cast<VectorElement*>(element)->HasMaskArea());
+			allowed = maskArea && branch.presented;
+		} else if (reread) {
+			branch.presentedCurrent = false;
 		}
-		auto* element = branch.element;
-		const bool maskArea = !node.mask || (element && static_cast<VectorElement*>(element)->HasMaskArea());
-		const bool allowed = inherited && maskArea && branch.presented;
 		// A load fixes the branches, so each update overwrites the same entries.
 		if (node.control) inputAllowed[node.id] = allowed;
 		for (auto& child : branch.children) CollectInputEligibility(child,allowed,reread);
@@ -2399,7 +2433,14 @@ struct Runtime::Impl {
 				// area's shape or an inset to it in dp, which a view not yet laid
 				// out keeps from the last.
 				if (source.view == "text") value = static_cast<double>(viewport.TextRatio());
+				else if (source.view == "variant") value = std::string(InterfaceVariantName(viewport.variant));
+				else if (source.view == "device") value = std::string(InterfaceDeviceClassName(viewport.device));
+				else if (source.view == "keyboard") value = viewport.keyboard;
+				else if (source.view == "mouse") value = viewport.mouse;
 				else if (viewport.width <= 0 || viewport.height <= 0) continue;
+				else if (source.view == "physical") value = static_cast<double>(viewport.DpRatio()/Positive(viewport.displayScale));
+				else if (source.view == "target") value = viewport.variant == InterfaceVariant::Touch ?
+					static_cast<double>(TouchTargetDp*Positive(viewport.displayScale)/viewport.DpRatio()) : 0.0;
 				else if (source.view == "aspect") value = static_cast<double>(viewport.SafeWidth())/static_cast<double>(viewport.SafeHeight());
 				else {
 					const float inset = source.view == "safeLeft" ? viewport.safeLeft : source.view == "safeTop" ? viewport.safeTop :
@@ -2484,6 +2525,86 @@ struct Runtime::Impl {
 		const float left = x-origin.x, top = y-origin.y;
 		if (detailPlaced && std::abs(left-detailLeft) < .25f && std::abs(top-detailTop) < .25f) return false;
 		detailLeft = left; detailTop = top; detailPlaced = true;
+		card->SetProperty(Rml::PropertyId::Left,Rml::Property(left,Rml::Unit::PX));
+		card->SetProperty(Rml::PropertyId::Top,Rml::Property(top,Rml::Unit::PX));
+		return true;
+	}
+	// Writes the tooltip's text to its state once its subject has waited its
+	// delay (TooltipSpec), and empties it otherwise. True when the state
+	// changed (its bindings are then applied).
+	bool UpdateTooltip() {
+		if (!canonical || !canonical->Model().tooltip) return false;
+		const auto& spec = *canonical->Model().tooltip;
+		const bool byPointer = pointerNavigation;
+		// A finger lands rather than browses: touch shows no tooltips.
+		std::string subject = touchPointer ? std::string{} : byPointer ? (pointerPresent ? interaction.Hovered() : std::string{}) :
+			tooltipKeyed ? interaction.Focused() : std::string{};
+		std::string text;
+		const auto* node = subject.empty() ? nullptr : canonical->Model().FindNode(subject);
+		if (node && node->control && node->control->tooltip) {
+			StateValue value; std::string error;
+			if (EvaluateStateExpression(*node->control->tooltip,state.Variables(),value,error)) {
+				if (const auto* result = std::get_if<std::string>(&value)) text = *result;
+			} else host.Log(true,error);
+		}
+		// An open list, or a field being typed in, holds the player's attention.
+		if (!text.empty()) {
+			if (interaction.HasEditor(subject)) text.clear();
+			if (!interaction.OpenPopup().empty()) text.clear();
+		}
+		if (text.empty()) subject.clear();
+		if (subject != tooltipSubject || byPointer != tooltipByPointer) {
+			tooltipGroup = !subject.empty() && byPointer && tooltipByPointer && time-tooltipHidden <= TooltipGroupSeconds;
+			tooltipSubject = subject; tooltipByPointer = byPointer; tooltipSince = time;
+			tooltipQuiet = false; tooltipPlaced = false;
+		}
+		const double delay = tooltipByPointer ? TooltipPointerSeconds : TooltipFocusSeconds;
+		const bool show = !tooltipSubject.empty() && !tooltipQuiet && (tooltipGroup || time-tooltipSince >= delay);
+		const bool enter = show && !tooltipShown && !tooltipGroup;
+		// The group runs from the last moment one showed.
+		if (show) tooltipHidden = time;
+		tooltipShown = show;
+		const StateValues change{{spec.state, show ? text : std::string{}}};
+		if (!state.WouldChange(change)) return false;
+		State candidate = state; std::string error;
+		if (!candidate.Set(change,error)) { host.Log(true,error); return false; }
+		state = std::move(candidate);
+		if (enter && !spec.enter.empty()) motion.Play(spec.enter,time);
+		ApplyControlBindings(); ApplyMotion(); return true;
+	}
+	// Places a shown tooltip by the card's measured box (TooltipSpec). True
+	// when it moved.
+	bool PlaceTooltip() {
+		if (!canonical || !canonical->Model().tooltip || !tooltipShown || tooltipSubject.empty()) return false;
+		auto* card = CanonicalElement(canonical->Model().tooltip->card);
+		auto* subject = CanonicalElement(tooltipSubject);
+		if (!card || !subject) return false;
+		const auto size = card->GetBox().GetSize(Rml::BoxArea::Border);
+		if (size.x <= 0 || size.y <= 0) return false;
+		auto* parent = card->GetOffsetParent();
+		const auto origin = parent ? parent->GetAbsoluteOffset(Rml::BoxArea::Padding) : Rml::Vector2f{};
+		const float dp = viewport.DpRatio(), edge = 16*dp;
+		const auto inset = [](float value) { return std::isfinite(value) ? std::max(value,0.f) : 0.f; };
+		const float leading = inset(viewport.safeLeft)+edge, top0 = inset(viewport.safeTop)+edge;
+		const float trailing = viewport.width-inset(viewport.safeRight)-edge, foot = viewport.height-inset(viewport.safeBottom)-edge;
+		float x = 0, y = 0;
+		if (tooltipByPointer) {
+			// Clear of the pointer's arrow: after and below it, and on its
+			// other side before the card would cross the view.
+			x = pointerX+12*dp; y = pointerY+15*dp;
+			if (x+size.x > trailing) x = pointerX-12*dp-size.x;
+			if (y+size.y > foot) y = pointerY-8*dp-size.y;
+		} else {
+			const auto at = subject->GetAbsoluteOffset(Rml::BoxArea::Border);
+			const auto box = subject->GetBox().GetSize(Rml::BoxArea::Border);
+			x = at.x+21*dp; y = at.y+box.y+4*dp;
+			if (y+size.y > foot) y = at.y-4*dp-size.y;
+		}
+		x = std::clamp(x,leading,std::max(leading,trailing-size.x));
+		y = std::clamp(y,top0,std::max(top0,foot-size.y));
+		const float left = x-origin.x, top = y-origin.y;
+		if (tooltipPlaced && std::abs(left-tooltipLeft) < .25f && std::abs(top-tooltipTop) < .25f) return false;
+		tooltipLeft = left; tooltipTop = top; tooltipPlaced = true;
 		card->SetProperty(Rml::PropertyId::Left,Rml::Property(left,Rml::Unit::PX));
 		card->SetProperty(Rml::PropertyId::Top,Rml::Property(top,Rml::Unit::PX));
 		return true;
@@ -2606,7 +2727,7 @@ struct Runtime::Impl {
 		if (!document || interaction.Focused().empty()) return result;
 		auto* target = CanonicalElement(interaction.Focused());
 		if (auto* viewport = NumberViewport(target)) target = viewport;
-		// openPR06: only the path up to the outermost scrolling ancestor counts.
+		// Only the path up to the outermost scrolling ancestor counts.
 		// RevealFocus scrolls only those, measuring the control in each one's
 		// own plane, so a page that moves or grows around them (a frame
 		// opening) changes nothing a reveal would do.
@@ -2925,6 +3046,31 @@ struct Runtime::Impl {
 		};
 		return context->GetElementAtPoint(point,nullptr,document,allowed);
 	}
+	// Section 13.6 (INP-007): a touch hit region is at least TouchTargetDp
+	// physical dp across, though the plate may look smaller. For a finger, and
+	// for any pointer in the touch or VR variant, a press that lands on no
+	// control reaches the nearest one whose box, grown to that size about its
+	// centre, holds the point; neighbours closer than the size split the gap,
+	// the nearer box winning. Controls already that large reach no further.
+	float TargetMinimumPixels() const {
+		if (!touchPointer && viewport.variant == InterfaceVariant::Desktop) return 0;
+		return TouchTargetDp * Positive(viewport.displayScale);
+	}
+	std::string ReachedControl(const std::map<std::string,ControlBounds>& bounds) const {
+		// An open list owns the finger: a press beside it closes it.
+		const float minimum = TargetMinimumPixels();
+		if (!(minimum > 0) || !pointerPresent || !interaction.OpenPopup().empty()) return {};
+		std::string best; float nearest = std::numeric_limits<float>::infinity();
+		for (const auto& [id,box] : bounds) {
+			if (!box.visible || !interaction.AllowsNode(id)) continue;
+			const float reachX = std::max(0.f,(minimum-box.width)/2), reachY = std::max(0.f,(minimum-box.height)/2);
+			const float dx = std::max({box.x-pointerX,0.f,pointerX-(box.x+box.width)});
+			const float dy = std::max({box.y-pointerY,0.f,pointerY-(box.y+box.height)});
+			if ((dx <= 0 && dy <= 0) || dx > reachX || dy > reachY) continue;
+			if (const float distance = dx*dx+dy*dy; distance < nearest) { nearest = distance; best = id; }
+		}
+		return best;
+	}
 	std::string HitControl(Rml::Element* element) const {
 		if (!canonical) return {};
 		for (; element && element != document; element = element->GetParentNode()) {
@@ -2949,15 +3095,15 @@ struct Runtime::Impl {
     }
 	// Whether the shown widgets can stand as the last frame left them. Their
 	// inputs (readbacks, availability, focus, pointer parts, scrolling) raise
-	// the interaction and scroll flags, and a frame with any of them raised
-	// keeps the full style/layout walk. A number field paints its caret from
-	// time, and an open list or a drag is a gesture in progress. A page
-	// leaving any of these is not at rest until one more full pass.
+	// the interaction and scroll flags. A number field paints its caret from
+	// time, and an open list, a drag, a fling or a press is a gesture in
+	// progress. A page leaving any of these is not at rest until one more
+	// frame has passed.
 	bool WidgetsAtRest() const {
 		const auto visible=[](const auto* element){return element->IsVisible(true);};
 		if (std::none_of(layoutWidgets.begin(),layoutWidgets.end(),visible)) return true;
 		return !interactionLayoutDirty && !scrollLayoutDirty && !preserveRestoredScroll && pendingFocus.empty() &&
-			focusLayoutId==interaction.Focused() && interaction.OpenPopup().empty() &&
+			focusLayoutId==interaction.Focused() && interaction.OpenPopup().empty() && !interaction.PointerHeld() &&
 			interaction.CapturedPointerControl().empty() && fling.container.empty() && !touch.pressed &&
 			std::none_of(editableWidgets.begin(),editableWidgets.end(),[&](const auto& widget){
 				return interaction.HasEditor(widget.second) && widget.first->IsVisible(true);});
@@ -3007,7 +3153,8 @@ struct Runtime::Impl {
         valueView.ValidatePlacement(interaction,viewport.width,viewport.height,viewport.DpRatio(),refreshPopup && !freshLayout);
 		// A finger dragging content or swiping a tab strip hovers nothing.
 		auto* element = pointerNavigation && !touch.dragging && !touch.swiping ? HitElement() : nullptr;
-		const auto hit = HitControl(element);
+		auto hit = HitControl(element);
+		if (hit.empty() && element) hit = ReachedControl(bounds);
 		const auto scrollbar=scrollView.PointerPart(element,pointerX,pointerY,interaction);
         if(!scrollbar.control.empty()) interaction.PointerPart(scrollbar.control,scrollbar.invalidProjection?std::nullopt:scrollbar.fraction,{},scrollbar.thumb);
         else {
@@ -3078,10 +3225,10 @@ struct Runtime::Impl {
 			deferredInputs.clear();
 		}
 		appliedMotionRevision = 0;
-		// openPR06: a settled closed list is reasserted only when this pass can
-		// undo its paint: a complete pass, or one that writes its value text,
-		// its popup or an opacity its popup reads. A page frame growing or a
-		// decoration moving no longer repaints every list on the page.
+		// A settled closed list is reasserted only when this pass can undo its
+		// paint: a complete pass, or one that writes its value text, its popup
+		// or an opacity its popup reads. Decoration moving or a page frame
+		// growing no longer repaints every closed list on the page.
 		if (!incremental || std::any_of(changedKeys.begin(),changedKeys.end(),
 				[&](const PropertyKey& key) { return valueView.PaintsNode(key.first,key.second); })) ++presentationPass;
 		bool complete = true;
@@ -3483,7 +3630,7 @@ void Runtime::Shutdown() {
 	impl->ReleaseModelScenes();
 	impl->canonicalElements.clear();
 	impl->boundsElements.clear();
-	impl->inputBranches={}; impl->modalBranches={}; impl->inputAllowed.clear(); impl->eligibilityCached=false; impl->interactionAncestors.clear(); impl->elementIndex.clear(); impl->layoutWidgets.clear(); impl->editableWidgets.clear(); impl->widgetsLive=impl->widgetsReplayBlocked=false; impl->valuePaintRevision=~std::uint64_t{0}; impl->rmlUpdateDue=0;
+	impl->inputBranches={}; impl->modalBranches={}; impl->inputAllowed.clear(); impl->eligibilityCached=false; impl->interactionAncestors.clear(); impl->elementIndex.clear(); impl->layoutWidgets.clear(); impl->editableWidgets.clear(); impl->widgetsLive=impl->widgetsReplayBlocked=false; impl->valuePaintRevision=~std::uint64_t{0}; impl->rmlUpdateDue=0; impl->ResetTooltip();
 	impl->hud = nullptr;
 	impl->paintDirty=true;
 	impl->changedProjections.clear();
@@ -3505,7 +3652,7 @@ void Runtime::CloseDocument() {
 
 	impl->sourcePath.clear();
 	impl->boundsElements.clear();
-	impl->inputBranches={}; impl->modalBranches={}; impl->inputAllowed.clear(); impl->eligibilityCached=false; impl->interactionAncestors.clear(); impl->elementIndex.clear(); impl->layoutWidgets.clear(); impl->editableWidgets.clear(); impl->widgetsLive=impl->widgetsReplayBlocked=false; impl->valuePaintRevision=~std::uint64_t{0}; impl->rmlUpdateDue=0;
+	impl->inputBranches={}; impl->modalBranches={}; impl->inputAllowed.clear(); impl->eligibilityCached=false; impl->interactionAncestors.clear(); impl->elementIndex.clear(); impl->layoutWidgets.clear(); impl->editableWidgets.clear(); impl->widgetsLive=impl->widgetsReplayBlocked=false; impl->valuePaintRevision=~std::uint64_t{0}; impl->rmlUpdateDue=0; impl->ResetTooltip();
 	impl->hud = nullptr;
 	impl->valueView.Reset();
 	impl->scrollView.Reset();impl->scrollLayoutDirty=impl->preserveRestoredScroll=false;
@@ -3816,6 +3963,24 @@ static bool SnapshotSourceMatches(const Json::Value& saved, const std::string& s
 		if (a == text.size() || b == source.size()) return a == text.size() && b == source.size();
 		if (text[a++] != source[b++]) return false;
 	}
+}
+bool Runtime::SnapshotNamesOtherRevision(const std::string& snapshot) const {
+	if (!impl->canonical || !impl->document || snapshot.empty() || snapshot.size() > MaxSnapshotBytes) return false;
+	try {
+		if (!SnapshotLexicalForms(snapshot)) return false;
+		Json::CharReaderBuilder builder;
+		builder["collectComments"] = false; builder["allowComments"] = false; builder["allowTrailingCommas"] = false;
+		builder["strictRoot"] = true; builder["failIfExtra"] = true; builder["rejectDupKeys"] = true;
+		builder["allowSpecialFloats"] = false; builder["stackLimit"] = 32; builder["skipBom"] = false;
+		std::unique_ptr<Json::CharReader> reader(builder.newCharReader()); Json::Value root;
+		if (!reader->parse(snapshot.data(),snapshot.data()+snapshot.size(),&root,nullptr) || !root.isObject()) return false;
+		if (root["format"] != "retained-ui-instance" && root["format"] != "openq4-ui-instance") return false;
+		const auto& identity = root["document"];
+		return identity.isObject() && SnapshotFields(identity,{"version","id","path","source"}) &&
+			identity["version"].isUInt() && identity["version"].asUInt() == 1 &&
+			identity["id"] == impl->canonical->Model().id && identity["path"] == impl->sourcePath &&
+			identity["source"].isString() && !SnapshotSourceMatches(identity["source"],impl->canonical->Source());
+	} catch (const std::exception&) { return false; }
 }
 bool Runtime::RestoreSnapshot(const std::string& snapshot, std::string& error, double seconds) {
     if(!Mutate())return false;
@@ -4168,9 +4333,9 @@ bool Runtime::Layout(const Viewport& viewport,double seconds) {
 	const bool rmlDue=impl->canonical && impl->time>=impl->rmlUpdateDue;
 	const bool explicitLayout=impl->canonical && !impl->NumberEditing() && !impl->interaction.PointerHeld();
 	bool layoutUpdated=!explicitLayout || viewportChanged || impl->presentationDirty || rmlDue;
-	// openPR06: replay (Frame) also waits for the shown widgets to rest
-	// for two frames: no focus, scroll, list, drag, fling or editor settling.
-	const bool widgetsAtRest=impl->canonical && impl->WidgetsAtRest();
+	// Replay (Frame) also waits for the shown widgets to rest for two frames:
+	// no focus, scroll, list, drag, fling or editor settling.
+	const bool widgetsAtRest=!impl->canonical || impl->WidgetsAtRest();
 	impl->widgetsReplayBlocked=!widgetsAtRest || impl->widgetsLive;
 	impl->widgetsLive=!widgetsAtRest;
 	if (layoutUpdated) {
@@ -4239,6 +4404,9 @@ bool Runtime::Layout(const Viewport& viewport,double seconds) {
 	bool detailChanged = false;
 	if (impl->UpdateDetailSubject()) { impl->context->Update(); detailChanged = true; }
 	if (impl->PlaceDetailCard()) { impl->context->Update(); detailChanged = true; }
+	// The tooltip after it, by the same subject rules and its own delay.
+	if (impl->UpdateTooltip()) { impl->context->Update(); detailChanged = true; }
+	if (impl->PlaceTooltip()) { impl->context->Update(); detailChanged = true; }
 	if (detailChanged) { impl->presentationDirty=false; impl->paintDirty=true; }
 	if (layoutUpdated || detailChanged) impl->context->GetRootElement()->UpdateGeometryForProjection();
 	if (layoutUpdated || settleInteraction || detailChanged) impl->RememberFocusLayout();
@@ -4420,7 +4588,7 @@ void Runtime::PointerButton(bool down, double seconds) {
  impl->SetPointerNavigation(true); if(!impl->UpdateInteraction(seconds,false,true))return;
  // A press stops inertia and closes a long-pressed detail; a lifted finger
  // settles its gesture before the release can activate anything.
- if(down) { impl->fling = {}; impl->detailPin.clear(); } else impl->ReleaseTouch();
+ if(down) { impl->fling = {}; impl->detailPin.clear(); impl->QuietTooltip(); } else impl->ReleaseTouch();
  impl->interaction.Pointer(down); impl->ApplyScrollCommands();
  if(down) { impl->RememberFocusLayout(); impl->BeginTouch(); }
  impl->Feedback(seconds); }
@@ -4432,6 +4600,7 @@ void Runtime::PointerWheel(int rows, double seconds) {
 	impl->fling = {};
 	if(!impl->UpdateInteraction(seconds,false,true))return;
 	if (!rows) return;
+	impl->QuietTooltip();
 	for (const auto& id : impl->controls) {
 		const auto widget = impl->interaction.Widget(id);
 		if (!widget || !widget->popupOpen) continue;
@@ -4484,7 +4653,7 @@ void Runtime::MenuAction(MenuInput input, bool down, double seconds) {
 
     if(impl->viewport.width<=0 || impl->viewport.height<=0) {impl->interaction.QuarantineInput(input,down);return;}
 	if (down && input != MenuInput::Back && !impl->interaction.CapturedPointerControl().empty()) impl->interaction.Cancel();
-	if (down) { impl->pendingFocus.clear(); impl->fling = {}; impl->detailPin.clear(); }
+	if (down) { impl->pendingFocus.clear(); impl->fling = {}; impl->detailPin.clear(); impl->QuietTooltip(); impl->tooltipKeyed = true; }
 	const auto before = impl->interaction.Focused();
 	const auto lit = impl->LitTarget();
 	impl->SetPointerNavigation(false); if(!impl->UpdateInteraction(seconds,false,true))return;
@@ -4497,7 +4666,7 @@ void Runtime::MenuAction(MenuInput input, bool down, double seconds) {
 }
 void Runtime::CancelInput(double seconds) {
     if(!Mutate())return;
- impl->EndTouch(); impl->fling = {}; impl->detailPin.clear();
+ impl->EndTouch(); impl->fling = {}; impl->detailPin.clear(); impl->QuietTooltip();
  impl->pointerPresent = false; impl->SetPointerNavigation(false); impl->interaction.Cancel(); impl->Feedback(seconds); }
 void Runtime::ReleaseInputSources() {
     if(!Mutate())return;
@@ -4596,7 +4765,8 @@ bool Runtime::AcknowledgeControlProposal(const std::string& id, std::uint64_t to
 		impl->ReadStateSources();
 		if (!impl->stateError.empty()) accepted = false;
 	}
-	// A settled or refused proposal changes what its widget shows.
+	// A settled or refused proposal changes what its widget shows, with no
+	// state change when it is refused: settle the interaction next frame.
 	impl->interactionLayoutDirty=true;
 	return impl->interaction.AcknowledgeProposal(id,token,accepted);
 }
@@ -4680,10 +4850,11 @@ bool Runtime::CancelNumberEdit(const std::string& id,NumberEditIdentity expected
 bool Runtime::QueryNumberDrafts(NumberDraftSummary& out,std::string& error,double seconds) {
     if(!Mutate())return false;
 
-	// The host asks on every prepare. Drafts live in editors alone, so with
-	// none open the answer reads no layout: refreshing every control's
-	// bounds for it would also cost a resting page its full pass each frame.
-	if (impl->canonical && std::isfinite(seconds) && seconds >= 0 && !impl->interaction.HasEditors()) {
+	// The host asks on every prepare (SyncNumberDrafts). Drafts live in
+	// editors alone, so with none open the answer reads no layout: refreshing
+	// every control's bounds for it also raised the interaction flag, costing
+	// a resting page its settling pass every frame.
+	if (impl->canonical && impl->document && std::isfinite(seconds) && seconds >= 0 && !impl->interaction.HasEditors()) {
 		impl->ReadStateSources();
 		if (!impl->stateError.empty()) { error = impl->stateError; return false; }
 		return impl->interaction.QueryNumberDrafts(out,error);

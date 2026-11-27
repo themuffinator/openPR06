@@ -89,8 +89,11 @@ int main(){
     vkShadowTimingSpans[3]={true,true,false,5,1};
     vkShadowTimingSpans[4]={true,true,false,2,1};
     VK_ShadowGpuTiming_BeginView(1);
-    assert(vkShadowTimingReport.pending==1 && vkShadowTimingReport.dropped==1);
-    assert(!resolved[0] && resolved[1] && !waited[1] && resolved[2] && waited[2]);
+    // A span younger than the frames in flight is carried, not even polled:
+    // its reset may not have run, so its queries can still hold another
+    // span's result (openQ4 upstream, VulkanShadowTiming.cpp).
+    assert(vkShadowTimingReport.pending==2 && vkShadowTimingReport.dropped==1);
+    assert(!resolved[0] && !resolved[1] && resolved[2] && waited[2]);
     assert(vkShadowTimingSpans[3].claimed && !vkShadowTimingSpans[4].claimed);
     enabled=false;VK_ShadowGpuTiming_BeginView(1);
     assert(vkShadowTimingSpans[0].claimed && vkShadowTimingSpans[1].claimed);

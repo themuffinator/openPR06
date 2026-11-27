@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import hashlib
 import json
 import os
 import platform
@@ -668,6 +667,7 @@ def run_python_tests(args: argparse.Namespace, root: Path, env: dict[str, str]) 
         root / "tools" / "tests" / "dmap_tjunction_slivers.py",
         root / "tools" / "tests" / "dmap_optimizer_zero_area.py",
         root / "tools" / "tests" / "dmap_patch_texture_groups.py",
+        root / "tools" / "tests" / "dmap_sky_areas.py",
         root / "tools" / "tests" / "idstr_last_color_code.py",
         root / "tools" / "tests" / "renderer_silhouette_edges.py",
         root / "tools" / "tests" / "fatal_error_startup_safety.py",
@@ -723,6 +723,7 @@ def run_python_tests(args: argparse.Namespace, root: Path, env: dict[str, str]) 
         root / "tools" / "tests" / "lightgrid_bake_contract.py",
         root / "tools" / "tests" / "renderer_render_thread_contract.py",
         root / "tools" / "tests" / "renderer_render_thread_runtime.py",
+        root / "tools" / "tests" / "renderer_deferred_light_interaction_table.py",
         root / "tools" / "tests" / "renderer_input_latency.py",
         root / "tools" / "tests" / "renderer_special_effect_snapshot.py",
         root / "tools" / "tests" / "renderer_frame_identity.py",
@@ -838,6 +839,7 @@ def run_python_tests(args: argparse.Namespace, root: Path, env: dict[str, str]) 
         root / "tools" / "tests" / "renderer_vulkan_gui_residency.py",
         root / "tools" / "tests" / "renderer_vulkan_md5r_compatibility.py",
         root / "tools" / "tests" / "renderer_vulkan_shadow_compatibility.py",
+        root / "tools" / "tests" / "renderer_vulkan_static_geometry.py",
         root / "tools" / "tests" / "renderer_vulkan_world_interaction_compatibility.py",
         root / "tools" / "tests" / "renderer_shared_domain_targets.py",
         root / "tools" / "tests" / "savegame_corruption_contract.py",
@@ -870,6 +872,7 @@ def run_python_tests(args: argparse.Namespace, root: Path, env: dict[str, str]) 
         (root / "tools" / "tests" / "ui_legacy_feedback.py", []),
         (root / "tools" / "tests" / 'renderer_native_ui_output.py', []),
         (root / "tools" / "tests" / 'sys_event_queue_ownership.py', []),
+        (root / "tools" / "tests" / 'sdl3_input_coalescing.py', []),
         (root / "tools" / "tests" / 'event_journal.py', []),
         (root / "tools" / "tests" / 'event_disposition_storage.py', []),
         (root / "tools" / "tests" / 'sdl3_input_disposition.py', []),

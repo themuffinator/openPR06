@@ -1148,7 +1148,9 @@ A mirror or portal view sees the world from behind its surface: retail
 camera and that plane must not draw. Doom 3 clipped only its depth fill, with
 an alpha-tested texgen that no programmable pass honours, so the clip is made
 the near plane of the projection instead (Lengyel's oblique frustum). Every
-pass of both backends then clips with it, with no shader involved.
+pass of both backends then clips with it, with no shader involved. Consumers
+that linearise depth from projectionMatrix[10] and [14] must check
+viewDef_t::obliqueNearPlane (soft particles draw plain there).
 
 The far plane is at infinity, so the frustum's farthest corner is a direction:
 the row that maps it to the far plane is scaled by 0.999, as the main

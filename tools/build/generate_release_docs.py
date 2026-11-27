@@ -1456,7 +1456,7 @@ def generate_release_docs_site(
     # Keep linked requirement/archive records, UI sources and licence notices
     # available offline. These are authored records/fixtures, not extracted art.
     for relative in (
-        "LICENSES/RmlUi.txt", "LICENSES/JsonCpp.txt", "LICENSES/libtess2.txt",
+        "LICENSES/RmlUi.txt", "LICENSES/JsonCpp.txt", "LICENSES/libtess2.txt", "LICENSES/zlib-ng.txt",
         "LICENSES/openxr-sdk.txt", "LICENSES/MD4.txt", "LICENSES/glslang.txt",
         "subprojects/openxr.wrap",
         "docs/dev/performance-budgets.json",

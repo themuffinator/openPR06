@@ -20,8 +20,18 @@
 
 #include "VRSystemLocal.h"
 
-idCVar vr_enable( "vr_enable", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL,
-	"play in virtual reality through the system's OpenXR runtime (OpenGL or Vulkan renderer); takes effect at once" );
+// VR Mode. The values 0 and 1 are the Boolean this setting was, so archived
+// configs and +set vr_enable 1 keep their meaning; 2 is Automatic.
+idCVar vr_enable( "vr_enable", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER,
+	"VR Mode, through the system's OpenXR runtime (OpenGL or Vulkan renderer): 0 = off (never asks the runtime), "
+	"1 = on (plays in VR whenever a headset is there), 2 = automatic (VR when a headset answers at launch, else the "
+	"desktop, offering a headset that turns up later); takes effect at once", 0, 2, idCmdSystem::ArgCompletion_Integer<0,2> );
+idCVar vr_offerAnswered( "vr_offerAnswered", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL,
+	"1 once the player answered the one-time question that a VR runtime is installed and VR can start by itself "
+	"(the title screen asks while VR Mode is off and this is 0)" );
+idCVar vr_setupDone( "vr_setupDone", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL,
+	"1 once the VR comfort setup (play space, height, turning, weapon hand) was shown at the first VR entry; "
+	"it stays in the pause menu and on the Virtual Reality tab" );
 idCVar vr_renderScale( "vr_renderScale", "1.0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
 	"multiplier on the headset's recommended per-eye resolution; the headset session restarts to apply it", 0.5f, 2.0f );
 idCVar vr_worldScale( "vr_worldScale", "39.37", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
@@ -46,14 +56,33 @@ idCVar vr_hudDistance( "vr_hudDistance", "1.4", CVAR_SYSTEM | CVAR_ARCHIVE | CVA
 	"distance of the head-locked HUD in metres", 0.5f, 5.0f );
 idCVar vr_hudWidth( "vr_hudWidth", "1.2", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
 	"width of the head-locked HUD in metres", 0.3f, 4.0f );
-idCVar vr_hudHeightOffset( "vr_hudHeightOffset", "-0.1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
-	"vertical offset of the head-locked HUD from eye level in metres", -1.0f, 1.0f );
+idCVar vr_hudHeightOffset( "vr_hudHeightOffset", "-0.3", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
+	"vertical offset of the head-locked HUD from eye level in metres, while aiming with the controller; the default "
+	"hangs it below the line of sight, its top edge at about eye level", -1.0f, 1.0f );
 idCVar vr_screenDistance( "vr_screenDistance", "2.5", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
 	"distance of the virtual screen for menus, loading and cinematics in metres", 0.8f, 10.0f );
 idCVar vr_screenWidth( "vr_screenWidth", "3.0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
 	"width of the virtual screen in metres", 0.5f, 12.0f );
+// Menus and the HUD in the world (VR-09): in play, the menus grow out of the
+// off hand on a panel it holds, and health and armor show on the off-hand
+// wrist and ammunition on the weapon hand's, so the game world stays in view.
+// The game reads vr_hudMode and vr_wristWidth by name (VRWristDisplay.cpp).
+idCVar vr_menuAnchor( "vr_menuAnchor", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER,
+	"menus during play: 0 = on the virtual screen hung in front of you, 1 = on a panel that grows out of your off hand "
+	"and stays above it (the title, loading screens and cinematics keep the screen)", 0, 1, idCmdSystem::ArgCompletion_Integer<0,1> );
+idCVar vr_menuWidth( "vr_menuWidth", "0.5", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
+	"width of the off-hand menu panel in metres", 0.3f, 1.2f );
+idCVar vr_hudMode( "vr_hudMode", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER,
+	"the status in VR: 0 = the whole HUD hung in front of your eyes, 1 = on your wrists, health and armor on the off hand "
+	"and ammunition on the weapon hand, with only captions, damage direction, the weapon wheel, vehicle HUDs and the "
+	"multiplayer overlay in front of your eyes", 0, 1, idCmdSystem::ArgCompletion_Integer<0,1> );
+idCVar vr_wristWidth( "vr_wristWidth", "0.11", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
+	"width of each wrist display (vr_hudMode 1) in metres", 0.06f, 0.2f );
+idCVar vr_menuHaptics( "vr_menuHaptics", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL,
+	"1 = the pointing hand ticks as the pointer moves onto another menu control, and the off hand as its panel opens" );
 idCVar vr_mirror( "vr_mirror", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER,
-	"desktop window while in VR: 0 = black, 1 = left eye, 2 = virtual screen", 0, 2, idCmdSystem::ArgCompletion_Integer<0,2> );
+	"desktop window while in VR: 0 = black, 1 = left eye (the virtual screen while a menu is up, as the headset shows it), "
+	"2 = virtual screen", 0, 2, idCmdSystem::ArgCompletion_Integer<0,2> );
 idCVar vr_weaponOffsetX( "vr_weaponOffsetX", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
 	"moves the held view weapon along the controller's aim, in game units (0 holds it by its own grip)", -40.0f, 40.0f );
 idCVar vr_weaponOffsetY( "vr_weaponOffsetY", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
@@ -62,6 +91,13 @@ idCVar vr_weaponOffsetZ( "vr_weaponOffsetZ", "0", CVAR_SYSTEM | CVAR_ARCHIVE | C
 	"moves the held view weapon up, in game units", -40.0f, 40.0f );
 idCVar vr_weaponPitch( "vr_weaponPitch", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
 	"view weapon pitch relative to the controller's aim, in degrees (positive tilts down)", -60.0f, 60.0f );
+idCVar vr_weaponScale( "vr_weaponScale", "1.75", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
+	"size of the gun and the hands holding it in the weapon hand: Quake 4 builds its first-person guns and hands at about "
+	"half life size for a flat screen, so 1.75 matches them to your body; 1 draws them as modelled", 0.5f, 3.0f );
+idCVar vr_wheelStickX( "vr_wheelStickX", "0", CVAR_SYSTEM | CVAR_FLOAT | CVAR_ROM | CVAR_NOCHEAT,
+	"set while the weapon wheel is open: the weapon-hand stick's push to the right, -1 to 1, which picks a slot" );
+idCVar vr_wheelStickY( "vr_wheelStickY", "0", CVAR_SYSTEM | CVAR_FLOAT | CVAR_ROM | CVAR_NOCHEAT,
+	"set while the weapon wheel is open: the weapon-hand stick's push down, -1 to 1, which picks a slot" );
 idCVar vr_comfortVignette( "vr_comfortVignette", "0.5", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
 	"comfort vignette while the stick moves or smoothly turns you: 0 off, up to 1 for a black edge and a 60 degree clear centre", 0.0f, 1.0f );
 idCVar vr_physicalCrouch( "vr_physicalCrouch", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL,
@@ -74,6 +110,9 @@ idCVar vr_roomScale( "vr_roomScale", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL
 	"1 = the body walks after your head as you move about the room (in multiplayer through its movement input); 0 = it stays put and leaning stops at vr_headOffsetLimit" );
 idCVar vr_hapticStrength( "vr_hapticStrength", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
 	"controller vibration strength, from 0 (off) to 1", 0.0f, 1.0f );
+idCVar vr_hapticEvents( "vr_hapticEvents", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_FLOAT,
+	"scales the vibration for blasts, reload steps, drawing a weapon and landing from a fall, from 0 (off) to 1; "
+	"shots, hits, beams and grips keep vr_hapticStrength alone", 0.0f, 1.0f );
 idCVar vr_aimLaser( "vr_aimLaser", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER,
 	"while aiming with the controller: 0 = no marker, 1 = a dot where the shot lands, 2 = the dot and a laser beam", 0, 2, idCmdSystem::ArgCompletion_Integer<0,2> );
 idCVar vr_body( "vr_body", "2", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER,
@@ -170,7 +209,44 @@ bool VR_ConsumeFocusLoss( void ) {
 
 void VR_UsercmdAnglesCleared( void ) {
 }
+
+// without OpenXR there is no runtime to find and no headset to offer
+bool VR_RuntimeInstalled( void ) {
+	return false;
+}
+
+const char *VR_RuntimeName( void ) {
+	return "";
+}
+
+bool VR_BootDecide( void ) {
+	return false;
+}
+
+bool VR_WantsRenderer( void ) {
+	return false;
+}
+
+bool VR_ConsumeHeadsetOffer( void ) {
+	return false;
+}
+
+bool VR_HeadsetOffered( void ) {
+	return false;
+}
+
+bool VR_TakeHeadsetOffer( void ) {
+	return false;
+}
+
+int VR_ConsumeDetectResult( void ) {
+	return -1;
+}
 #endif
+
+int VR_Mode( void ) {
+	return idMath::ClampInt( VR_MODE_OFF, VR_MODE_AUTOMATIC, vr_enable.GetInteger() );
+}
 
 bool VR_HasInputFocus( void ) {
 	if ( vrSystem == NULL ) {

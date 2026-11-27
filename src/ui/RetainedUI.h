@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "retained/DocumentEdit.h"
+#include "retained/InterfaceVariant.h"
 
 namespace openq4::ui { class Runtime; class Document; struct Viewport; struct Diagnostic; }
 namespace openq4::ui { struct RuntimeDocumentOptions; }
@@ -57,6 +58,20 @@ bool RetainedUI_EndWarm();
 namespace openq4::ui { class VectorCompileBatch; }
 bool RetainedUI_GatherViewCompilations(retainedUIView_t* view, const openq4::ui::Viewport& viewport, openq4::ui::VectorCompileBatch& batch);
 bool RetainedUI_DefaultViewport(openq4::ui::Viewport& viewport);
+// The interface variant the retained UI presents (docs/dev/ui/interface-variants.md):
+// desktop, touch, or vr while the VR session presents; ui_interfaceVariant
+// forces one. Each call observes the current signals, so the answer follows a
+// headset starting or stopping, a device attaching and the pointer used last.
+// A dedicated server answers desktop.
+openq4::ui::InterfaceVariant RetainedUI_InterfaceVariant();
+openq4::ui::InterfaceDeviceClass RetainedUI_InterfaceDeviceClass();
+// Whether a keyboard, or a mouse, is attached or was used.
+bool RetainedUI_InterfaceKeyboard();
+bool RetainedUI_InterfaceMouse();
+// The text size a device class starts at (a new Android install's phone 1.5
+// and tablet 1.25, the Steam Deck profile's 1.25; 1 elsewhere), which the
+// canvas menus need and the touch documents divide back out.
+float RetainedUI_DeviceTextDefault();
 double RetainedUI_PresentationTime();
 // Call immediately after renderSystem->EndFrame has consumed its front-end
 // command chain. Allows a deferred resource rebuild before the next draw; this
@@ -107,6 +122,9 @@ int RetainedUI_KeyGlyph( int key, class idStr &label );
 // and Back); documents read it as the adapter-owned state prompt.swapped.
 bool RetainedUI_PromptSwapped();
 unsigned RetainedUI_InputGeneration();
+// Counts the times the pointer came to rest on another control of an active
+// retained document; the VR pointer ticks the pointing hand on each (VR-09).
+unsigned RetainedUI_HoverGeneration();
 // Registered retained views (documents holding an RmlUi context), for the
 // ui_retained gate report: zero while the stock interface presents everything.
 int RetainedUI_ViewCount();

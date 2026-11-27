@@ -46,8 +46,11 @@ any cached payload can be accepted.
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <deque>
 #include <iomanip>
 #include <limits>
 #include <condition_variable>
@@ -55,17 +58,22 @@ any cached payload can be accepted.
 #include <deque>
 #include <mutex>
 #include <thread>
-#if defined( _WIN32 )
-#include <io.h>
-#else
-#include <unistd.h>
-#endif
 #include <unordered_map>
 #include <set>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
+
+#if defined( USE_SDL3 )
+	#include <SDL3/SDL_filesystem.h>
+#endif
+#if defined( _WIN32 )
+	#include <windows.h>
+	#include <io.h>
+#else
+	#include <unistd.h>
+#endif
 
 #if defined( min )
 	#undef min
@@ -542,8 +550,6 @@ std::string CachePath( const idLevelLoadCache::EnvelopeExpectation &expected ) {
 		HashHex( HashString( key.str().c_str() ) ) + ".oqgc";
 }
 
-} // namespace
-
 /*
 ================
 GeneratedCacheWriter
@@ -551,11 +557,13 @@ GeneratedCacheWriter
 Generated caches are derived data: a level load does not need them, only the
 next one. The owner thread hands over the finished envelope and the absolute
 staging/final paths (resolved there, because path building uses shared
-buffers); this thread encodes it (two SHA-256 passes), writes the staging file
-with plain C stdio and promotes it with an atomic OS rename. It never calls
-into idFileSystem. A reader that asks before the file lands simply misses and
+buffers, and with the directories already created); this thread encodes it
+(two SHA-256 passes), writes the staging file with plain C stdio and promotes
+it with the same atomic rename PromoteFile uses. It never calls into
+idFileSystem. A reader that asks before the file lands simply misses and
 parses the source, as on a first visit. Queued payloads are capped at
-MAX_QUEUED_BYTES; past that the owner waits for the writer to catch up.
+MAX_QUEUED_BYTES; past that the owner waits for the writer to catch up. The
+manager is destroyed at file-system shutdown, which drains the queue.
 ================
 */
 class GeneratedCacheWriter {
@@ -571,21 +579,33 @@ public:
 		Drain();
 	}
 
-	void Enqueue( Job &&job ) {
+	// Takes the job and returns true once it is queued. Returns false and
+	// leaves the job with the caller when the writer thread cannot start, so
+	// the caller can write it in place instead.
+	bool Enqueue( Job &job ) {
 		{
 			std::unique_lock<std::mutex> lock( mutex );
+			if ( !worker.joinable() ) {
+				stop = false;
+				try {
+					worker = std::thread( [this] { Run(); } );
+				} catch ( ... ) {
+					return false;
+				}
+			}
 			const std::uint64_t bytes = job.envelope.payload.size();
 			room.wait( lock, [this, bytes] {
 				return queuedBytes == 0 || queuedBytes + bytes <= MAX_QUEUED_BYTES;
 			} );
-			queuedBytes += bytes;
-			queue.push_back( std::move( job ) );
-			if ( !worker.joinable() ) {
-				stop = false;
-				worker = std::thread( [this] { Run(); } );
+			try {
+				queue.push_back( std::move( job ) );
+			} catch ( ... ) {
+				return false;
 			}
+			queuedBytes += bytes;
 		}
 		wake.notify_one();
+		return true;
 	}
 
 	// blocks until every queued file has been written (shutdown)
@@ -622,7 +642,14 @@ private:
 				busy = true;
 			}
 			const std::uint64_t bytes = job.envelope.payload.size();
-			const bool ok = Write( job );
+			bool ok = false;
+			try {
+				ok = Write( job );
+			} catch ( ... ) {
+				// an allocation failure while encoding only loses this cache
+				std::remove( job.stagedOSPath.c_str() );
+				ok = false;
+			}
 			( ok ? written : failed ).fetch_add( 1, std::memory_order_relaxed );
 			{
 				std::lock_guard<std::mutex> lock( mutex );
@@ -638,12 +665,12 @@ private:
 		if ( !idLevelLoadCache::EncodeEnvelope( job.envelope, encoded ) || encoded.empty() ) {
 			return false;
 		}
-		FILE *f = fopen( job.stagedOSPath.c_str(), "wb" );
+		FILE *f = std::fopen( job.stagedOSPath.c_str(), "wb" );
 		if ( f == nullptr ) {
 			return false;
 		}
-		bool ok = fwrite( encoded.data(), 1, encoded.size(), f ) == encoded.size();
-		ok = ( fflush( f ) == 0 ) && ok;
+		bool ok = std::fwrite( encoded.data(), 1, encoded.size(), f ) == encoded.size();
+		ok = ( std::fflush( f ) == 0 ) && ok;
 		if ( ok && job.sync ) {
 #if defined( _WIN32 )
 			ok = _commit( _fileno( f ) ) == 0;
@@ -651,17 +678,20 @@ private:
 			ok = fsync( fileno( f ) ) == 0;
 #endif
 		}
-		ok = ( fclose( f ) == 0 ) && ok;
+		ok = ( std::fclose( f ) == 0 ) && ok;
 		if ( ok ) {
-#if defined( _WIN32 )
+			// the same atomic replace idFileSystem::PromoteFile uses
+#if defined( USE_SDL3 )
+			ok = SDL_RenamePath( job.stagedOSPath.c_str(), job.finalOSPath.c_str() );
+#elif defined( _WIN32 )
 			ok = MoveFileExA( job.stagedOSPath.c_str(), job.finalOSPath.c_str(),
 				MOVEFILE_REPLACE_EXISTING | ( job.sync ? MOVEFILE_WRITE_THROUGH : 0 ) ) != FALSE;
 #else
-			ok = rename( job.stagedOSPath.c_str(), job.finalOSPath.c_str() ) == 0;
+			ok = std::rename( job.stagedOSPath.c_str(), job.finalOSPath.c_str() ) == 0;
 #endif
 		}
 		if ( !ok ) {
-			remove( job.stagedOSPath.c_str() );
+			std::remove( job.stagedOSPath.c_str() );
 		}
 		return ok;
 	}
@@ -679,6 +709,8 @@ private:
 	std::atomic<std::uint64_t>	written{ 0 };
 	std::atomic<std::uint64_t>	failed{ 0 };
 };
+
+} // namespace
 
 struct idLevelLoadCacheManager::Impl {
 	struct SemanticHint {
@@ -1314,12 +1346,15 @@ bool idLevelLoadCacheManager::WriteGeneratedCache( const generatedCacheKind_t ki
 		job.sync = com_levelLoadCacheSync.GetBool();
 		job.envelope = std::move( envelope );
 		impl->fileSystem->CreateOSPath( job.finalOSPath.c_str() );
-		impl->writer.Enqueue( std::move( job ) );
-		impl->generatedWrites.fetch_add( 1, std::memory_order_relaxed );
-		if ( com_levelLoadCacheReport.GetBool() ) {
-			common->Printf( "Generated cache queued for %s (%u payload bytes)\n", normalized.c_str(), payloadBytes );
+		if ( impl->writer.Enqueue( job ) ) {
+			impl->generatedWrites.fetch_add( 1, std::memory_order_relaxed );
+			if ( com_levelLoadCacheReport.GetBool() ) {
+				common->Printf( "Generated cache queued for %s (%u payload bytes)\n", normalized.c_str(), payloadBytes );
+			}
+			return true;
 		}
-		return true;
+		// no writer thread: write it during the load as before
+		envelope = std::move( job.envelope );
 	}
 	std::vector<std::uint8_t> encoded;
 	const idLevelLoadCache::Result result = idLevelLoadCache::EncodeEnvelope( envelope, encoded );

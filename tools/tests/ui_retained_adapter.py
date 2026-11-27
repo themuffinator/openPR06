@@ -249,8 +249,9 @@ struct TextFit { bool overflow=false; int maxIndex=-1,lastWhitespace=-1; };
 struct Viewport {
     int width=1920,height=1080;
     float displayScale=1,userScale=1,pixelDensityX=2,pixelDensityY=2,originX=80,originY=40;
-    float fitScale=1,canvasHeight=0,canvasMinWidth=0;
+    float fitScale=1,canvasHeight=0,canvasMinWidth=0,textScale=1;
     float DpRatio() const { return canvasHeight>0&&height>0 ? height/canvasHeight : displayScale*userScale; }
+    void FitToMinimum(float,float) {}
 };
 static DocumentModel modelTemplate;
 struct Document::Impl { std::string source; DocumentModel model; };
@@ -324,6 +325,7 @@ public:
     bool PublishNumberNativeSettlement(Interaction::NativeSettlement&,NativeTextEditorReceipt&) noexcept { std::abort(); }
     bool RetireNumberNativeExact(NativeTextIdentity,const TextEditorIdentity&) noexcept { std::abort(); }
     NativeTextPresence QueryNumberNativePresence(NativeTextIdentity,const TextEditorIdentity&) const noexcept { return NativeTextPresence::BusyOrUnknown; }
+    bool SnapshotNamesOtherRevision(const std::string&) const { return false; }
     bool draftQueryAvailable=true,failDraftDiscard=false;
     std::vector<std::string> draftFocusCalls;
     unsigned draftDiscardCalls=0;
@@ -723,6 +725,9 @@ bool RetainedUI_LoadParsedView(retainedUIView_t*,const openq4::ui::Document&,con
 bool UI_RetainedTakePrefetched(const std::string&,int,std::string&,ID_TIME_T&,openq4::ui::Document&) { return false; }
 bool RetainedUI_DefaultViewport(openq4::ui::Viewport& result) { result=viewport; return viewport.width>0 && viewport.height>0; }
 double RetainedUI_PresentationTime() { return presentationTime; }
+// openPR06: openQ4's interface variants (RetainedUI.cpp); the desktop presentation
+openq4::ui::InterfaceVariant RetainedUI_InterfaceVariant() { return openq4::ui::InterfaceVariant{}; }
+float RetainedUI_DeviceTextDefault() { return 1.0f; }
 int promptGlyphsValue=0;
 int RetainedUI_PromptGlyphs() { return promptGlyphsValue; }
 bool promptSwappedValue=false;

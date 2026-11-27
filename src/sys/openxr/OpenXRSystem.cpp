@@ -33,8 +33,11 @@
 
 #include "../../framework/VRSystemLocal.h"
 #include "../../framework/VRMathCore.h"
+#include "../../framework/VRPanelCore.h"
+#include "../../framework/VRTouchCore.h"
 #include "../../framework/PresentationClock.h"
 #include "../../ui/RetainedUI.h"
+#include "OpenXRRuntimeProbe.h"
 
 #if defined( _WIN32 )
 #include <windows.h>
@@ -231,6 +234,11 @@ enum vrGraphicsApi_t {
 static const int VR_SCREEN_WIDTH = 1920;
 static const int VR_SCREEN_HEIGHT = 1080;
 static const int VR_SYSTEM_RETRY_MSEC = 3000;
+// Automatic VR Mode: how long after launch, or after the player chose
+// Automatic, a headset that answers still starts VR by itself. A runtime
+// started by the first instance (SteamVR) can take this long to find its
+// headset; one that appears later is offered instead.
+static const int VR_AUTO_DECIDE_MSEC = 20000;
 // how long a queued renderer restart may wait behind a running script before
 // the session retry counts it as failed
 static const int VR_RESTART_PENDING_MSEC = 60000;
@@ -408,6 +416,15 @@ public:
 	virtual void			TurnBody( float yawDegrees );
 
 	void					RequestRestart( void ) { restartRequested = true; }
+	// VR Mode and headset detection (VR-08)
+	bool					BootDecide( void );
+	bool					SessionWanted( void ) const;
+	void					RequestDetect( void );
+	bool					ConsumeHeadsetOffer( void ) { const bool offer = headsetOfferPending; headsetOfferPending = false; return offer; }
+	int						ConsumeDetectResult( void ) { const int result = detectResult; detectResult = -1; return result; }
+	bool					HeadsetOffered( void ) const { return headsetOffered && !autoEngaged && VR_Mode() == VR_MODE_AUTOMATIC; }
+	bool					TakeHeadsetOffer( void );
+	const openq4::xr::RuntimeProbe &RuntimeProbe( void ) const { return runtimeProbe; }
 	void					RequestRecenter( void ) { recenterRequested = true; }
 	void					RequestCalibrateHeight( void ) { calibrateRequested = true; }
 	bool					ConsumeFocusLoss( void ) { const bool lost = focusLost; focusLost = false; return lost; }
@@ -448,6 +465,10 @@ private:
 
 	// lifecycle
 	enum recovery_t { RECOVERY_NONE, RECOVERY_SESSION, RECOVERY_INSTANCE };
+	bool					InstanceWanted( void ) const;
+	void					ProbeRuntime( void );
+	void					ModeChanged( int mode );
+	void					HeadsetAnswered( bool found );
 	bool					Check( XrResult result, const char *what );
 	bool					CheckOptional( XrResult result, const char *what );
 	bool					CheckFrame( XrResult result, const char *what );
@@ -485,7 +506,10 @@ private:
 	void					ApplyTrackpadRegions( int weaponHand );
 	void					ApplyTwoHandedAim( int weaponHand );
 	void					UpdateMenuPointer( int weaponHand, bool menu );
+	// The weapon hand's fingertip pressing the hand panel (VRTouchCore.h)
+	void					TouchPanel( int hand, bool touching, float distance, float u, float v );
 	void					AnchorScreen( void );
+	bool					PlaceHandPanel( int offHand );
 	void					ScreenQuadSize( float &width, float &height ) const;
 	void					ScreenSizeForWindow( int &width, int &height ) const;
 	bool					ResizeScreenSwapchain( void );
@@ -556,6 +580,21 @@ private:
 	idStr					systemName;
 	idStr					interactionProfile;
 
+	// VR Mode (vr_enable) and detection, VR-08: stage one's answer, read at
+	// boot and by vr_detect; what Automatic decided; and the queries that
+	// asked the runtime for a headset
+	openq4::xr::RuntimeProbe runtimeProbe;
+	bool					runtimeProbed;
+	int						lastMode;			// VR_Mode() as StartIfRequested last applied it
+	bool					autoEngaged;		// Automatic: this session plays in VR
+	int						autoDecideUntil;	// Automatic: a headset answering before then starts VR; 0 = decided
+	bool					headsetOffered;		// Automatic settled on the desktop and a headset turned up since
+	bool					headsetOfferPending;	// that offer, until the session's notice takes it
+	bool					detectRequested;	// vr_detect: one look for a headset, VR Mode off or not
+	int						detectResult;		// its answer for the session's notice (VR_DETECT_*), -1 none new
+	int						systemQueries;		// xrGetSystem answers, a headset or none
+	float					appliedRenderScale;	// vr_renderScale the instance was set up with
+
 	swapchain_t				eyeSwapchains[VR_NUM_EYES];
 	swapchain_t				screenSwapchain;
 	int64_t					swapchainFormat;
@@ -590,7 +629,21 @@ private:
 	int						screenResizeFailedHeight;
 	XrPosef					aimLocalPoses[VR_NUM_HANDS];	// raw LOCAL space, for the menu pointer
 	bool					aimLocalValid[VR_NUM_HANDS];
+	XrPosef					gripLocalPoses[VR_NUM_HANDS];	// the same for the grips: the hand panel
+	bool					gripLocalValid[VR_NUM_HANDS];
+	XrPosef					headLocalPose;		// the head this frame, in the base space
+	bool					headLocalValid;
+	// The menu panel that grows out of the off hand (vr_menuAnchor 1, VR-09);
+	// while it shows, screenAnchor is its drawn pose and panelWidth its drawn width
+	vrHandPanel_t			handPanel;
+	bool					panelActive;
+	float					panelWidth;
+	int						panelMsec;			// when it last stepped
+	unsigned int			hoverGeneration;	// RetainedUI_HoverGeneration as the pointer last ticked for it
 	bool					pointerOnScreen;	// a menu took the pointer at ( pointerU, pointerV )
+	bool					fingerOnPanel;		// the weapon hand's fingertip, not its beam, holds the pointer
+	vrTouch_t				panelTouch;			// that fingertip's press on the hand panel
+	XrVector3f				pointerHitLocal;	// where the weapon hand's ray meets the menu, base space
 	float					pointerU;
 	float					pointerV;
 	const idMaterial *		pointerMaterial;
@@ -700,6 +753,16 @@ static XrQuaternionf VR_YawOnly( const XrQuaternionf &orientation ) {
 }
 
 idVRSystemOpenXR::idVRSystemOpenXR( void ) {
+	runtimeProbed = false;
+	lastMode = VR_MODE_OFF;
+	autoEngaged = false;
+	autoDecideUntil = 0;
+	headsetOffered = false;
+	headsetOfferPending = false;
+	detectRequested = false;
+	detectResult = -1;
+	systemQueries = 0;
+	appliedRenderScale = 1.0f;
 	instance = XR_NULL_HANDLE;
 	systemId = XR_NULL_SYSTEM_ID;
 	session = XR_NULL_HANDLE;
@@ -781,10 +844,22 @@ idVRSystemOpenXR::idVRSystemOpenXR( void ) {
 	screenAnchor = VR_IdentityPose();
 	screenAnchored = false;
 	lastFrameHud = false;
+	headLocalPose = VR_IdentityPose();
+	headLocalValid = false;
+	memset( &handPanel, 0, sizeof( handPanel ) );
+	panelActive = false;
+	panelWidth = 0.0f;
+	panelMsec = 0;
+	hoverGeneration = 0;
+	fingerOnPanel = false;
+	VR_TouchReset( panelTouch );
+	pointerHitLocal.x = pointerHitLocal.y = pointerHitLocal.z = 0.0f;
 	screenResizeFailedWidth = screenResizeFailedHeight = 0;
 	for ( int i = 0; i < VR_NUM_HANDS; i++ ) {
 		aimLocalPoses[i] = VR_IdentityPose();
 		aimLocalValid[i] = false;
+		gripLocalPoses[i] = VR_IdentityPose();
+		gripLocalValid[i] = false;
 	}
 	pointerOnScreen = false;
 	pointerU = pointerV = 0.0f;
@@ -846,13 +921,38 @@ static void VR_Status_f( const idCmdArgs &args ) {
 	}
 }
 
+static void VR_Detect_f( const idCmdArgs &args ) {
+	(void)args;
+	if ( vrOpenXR != NULL ) {
+		vrOpenXR->RequestDetect();
+	}
+}
+
+static void VR_Start_f( const idCmdArgs &args ) {
+	(void)args;
+	if ( vrOpenXR == NULL ) {
+		return;
+	}
+	if ( VR_Mode() == VR_MODE_OFF ) {
+		common->Printf( "vr_start: VR Mode is off; set vr_enable 1 (on) or 2 (automatic)\n" );
+	} else if ( !vrOpenXR->TakeHeadsetOffer() ) {
+		common->Printf( "vr_start: no headset is waiting to be taken (%s)\n", VR_Mode() == VR_MODE_ON ? "VR Mode on plays in VR whenever one is there"
+			: "Automatic VR Mode offers a headset that turns up after launch" );
+	}
+}
+
 void idVRSystemOpenXR::Init( void ) {
 	cmdSystem->AddCommand( "vr_restart", VR_Restart_f, CMD_FL_SYSTEM, "restarts the OpenXR session, applying vr_enable and vr_renderScale" );
 	cmdSystem->AddCommand( "vr_recenter", VR_Recenter_f, CMD_FL_SYSTEM, "makes the current head position and heading the VR origin" );
 	cmdSystem->AddCommand( "vr_calibrateHeight", VR_CalibrateHeight_f, CMD_FL_SYSTEM,
 		"standing play: stand up straight; your eye height becomes vr_standingHeight and the VR origin is recentred" );
 	cmdSystem->AddCommand( "vr_status", VR_Status_f, CMD_FL_SYSTEM, "prints the OpenXR runtime, session and tracking state" );
+	cmdSystem->AddCommand( "vr_detect", VR_Detect_f, CMD_FL_SYSTEM,
+		"looks for a VR headset now, whatever VR Mode is (this asks the OpenXR runtime, which can start it), and reports it" );
+	cmdSystem->AddCommand( "vr_start", VR_Start_f, CMD_FL_SYSTEM,
+		"Automatic VR Mode: plays in VR now on the headset it offered (the notice's Play in VR)" );
 	vr_enable.ClearModified();
+	appliedRenderScale = vr_renderScale.GetFloat();
 }
 
 void idVRSystemOpenXR::Shutdown( void ) {
@@ -862,6 +962,8 @@ void idVRSystemOpenXR::Shutdown( void ) {
 	cmdSystem->RemoveCommand( "vr_recenter" );
 	cmdSystem->RemoveCommand( "vr_calibrateHeight" );
 	cmdSystem->RemoveCommand( "vr_status" );
+	cmdSystem->RemoveCommand( "vr_detect" );
+	cmdSystem->RemoveCommand( "vr_start" );
 }
 
 void idVRSystemOpenXR::RendererStarted( void ) {
@@ -885,6 +987,16 @@ bool idVRSystemOpenXR::IsActive( void ) const {
 }
 
 void idVRSystemOpenXR::PrintStatus( void ) const {
+	static const char *const modes[3] = { "off", "on", "automatic" };
+	const int mode = VR_Mode();
+	common->Printf( "VR Mode: %s%s\n", modes[mode], mode != VR_MODE_AUTOMATIC ? "" : autoEngaged ? ", playing in VR"
+		: autoDecideUntil != 0 ? ", waiting for a headset to answer" : headsetOffered ? ", a headset is offered (vr_start)" : ", on the desktop" );
+	if ( runtimeProbe.source == openq4::xr::RuntimeSource::None ) {
+		common->Printf( "  runtime probe: none (%s)\n", runtimeProbe.note.c_str() );
+	} else {
+		common->Printf( "  runtime probe: %s from %s (%s)\n", runtimeProbe.name.c_str(), openq4::xr::RuntimeSourceName( runtimeProbe.source ),
+			runtimeProbe.manifest.c_str() );
+	}
 	common->Printf( "OpenXR: %s\n", instance != XR_NULL_HANDLE ? "instance created" : "no instance" );
 	if ( runtimeStopped ) {
 		common->Printf( "  the runtime ended VR; vr_restart starts it again\n" );
@@ -1373,11 +1485,18 @@ bool idVRSystemOpenXR::AcquireSystem( void ) {
 	getInfo.type = XR_TYPE_SYSTEM_GET_INFO;
 	getInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
 	const XrResult result = xrGetSystem( instance, &getInfo, &systemId );
+	if ( result == XR_ERROR_FORM_FACTOR_UNAVAILABLE || result == XR_SUCCESS ) {
+		systemQueries++;
+	}
 	if ( result == XR_ERROR_FORM_FACTOR_UNAVAILABLE ) {
 		systemId = XR_NULL_SYSTEM_ID;
 		nextSystemRetryTime = Sys_Milliseconds() + VR_SYSTEM_RETRY_MSEC;
-		if ( !systemUnavailableLogged ) {
+		// a look the player asked for reports itself (HeadsetAnswered)
+		if ( !systemUnavailableLogged && SessionWanted() ) {
 			common->Printf( "OpenXR: no headset is connected yet; waiting for one\n" );
+			systemUnavailableLogged = true;
+		} else if ( !systemUnavailableLogged && VR_Mode() == VR_MODE_AUTOMATIC ) {
+			common->Printf( "OpenXR: no headset answered yet; Automatic VR Mode watches for one\n" );
 			systemUnavailableLogged = true;
 		}
 		return false;
@@ -1427,7 +1546,9 @@ renderer starts, before the per-frame start, so it creates both on the spot.
 ====================
 */
 bool idVRSystemOpenXR::PrepareVulkanSystem( void ) {
-	if ( !vr_enable.GetBool() || runtimeStopped ) {
+	// Automatic on the desktop leaves the device to the renderer: a headset
+	// taken later restarts the renderer once, so the runtime can make it
+	if ( !SessionWanted() || runtimeStopped ) {
 		return false;
 	}
 	if ( instance == XR_NULL_HANDLE && !CreateInstance() ) {
@@ -1922,6 +2043,8 @@ void idVRSystemOpenXR::ReleaseInput( void ) {
 		pointerOnScreen = false;
 		Sys_PostVRPointer( false, 0.0f, 0.0f );
 	}
+	fingerOnPanel = false;
+	VR_TouchReset( panelTouch );
 	for ( int i = 0; i < 16; i++ ) {
 		UpdateKey( i, heldKeys[i], false );
 	}
@@ -2394,17 +2517,25 @@ idVRSystemOpenXR::StartIfRequested
 */
 void idVRSystemOpenXR::StartIfRequested( void ) {
 	if ( restartRequested || vr_enable.IsModified() || vr_renderScale.IsModified() ) {
-		const bool restart = restartRequested || vr_renderScale.IsModified();
+		// The config restates the archived scale as it runs ("1" for "1.0"):
+		// only a new value restarts the session, so launch asks the runtime once.
+		const bool restart = restartRequested || ( vr_renderScale.IsModified() && vr_renderScale.GetFloat() != appliedRenderScale );
+		appliedRenderScale = vr_renderScale.GetFloat();
 		restartRequested = false;
 		vr_enable.ClearModified();
 		vr_renderScale.ClearModified();
-		if ( !vr_enable.GetBool() || restart ) {
+		if ( VR_Mode() != lastMode ) {
+			ModeChanged( VR_Mode() );
+		}
+		if ( !SessionWanted() || restart ) {
 			DestroySession();
 			// the instance whose runtime made the Vulkan renderer's device stays
 			// for a restart: a new one could bind only after a renderer restart
-			const bool keepForVulkan = vr_enable.GetBool() && !runtimeStopped
+			const bool keepForVulkan = SessionWanted() && !runtimeStopped
 				&& vulkanCreator != XR_NULL_HANDLE && vulkanCreator == instance;
-			if ( !keepForVulkan ) {
+			// Automatic on the desktop keeps the instance it watches for a headset with
+			const bool keepForWatch = !restart && InstanceWanted();
+			if ( !keepForVulkan && !keepForWatch ) {
 				DestroyInstance();
 			}
 		}
@@ -2416,9 +2547,22 @@ void idVRSystemOpenXR::StartIfRequested( void ) {
 		nextSystemRetryTime = 0;
 		nextSessionRetryTime = 0;
 	}
+	// Automatic's window for a headset to start VR by itself closes: a headset
+	// that answers after it is offered, not switched to
+	if ( autoDecideUntil != 0 && Sys_Milliseconds() - autoDecideUntil > 0 ) {
+		autoDecideUntil = 0;
+		if ( VR_Mode() == VR_MODE_AUTOMATIC && !autoEngaged ) {
+			common->Printf( "VR_MODE decision=desktop reason=no-headset (Automatic: no headset answered within %d s; "
+				"one that turns up later is offered)\n", VR_AUTO_DECIDE_MSEC / 1000 );
+		}
+	}
+	// A finished look (vr_detect) with VR Mode off leaves no instance behind.
+	if ( !InstanceWanted() && instance != XR_NULL_HANDLE && session == XR_NULL_HANDLE ) {
+		DestroyInstance();
+	}
 	// Once the runtime has ended VR, creating an instance could relaunch it
 	// (SteamVR starts with its first client), so only vr_restart resumes.
-	if ( runtimeStopped || !vr_enable.GetBool() || !rendererReady || !renderSystem->IsOpenGLRunning() ) {
+	if ( runtimeStopped || !InstanceWanted() || !rendererReady || !renderSystem->IsOpenGLRunning() ) {
 		return;
 	}
 	if ( instance == XR_NULL_HANDLE ) {
@@ -2428,10 +2572,21 @@ void idVRSystemOpenXR::StartIfRequested( void ) {
 		if ( !CreateInstance() ) {
 			// no runtime: try again later rather than every frame
 			nextInstanceRetryTime = Sys_Milliseconds() + VR_SYSTEM_RETRY_MSEC * 3;
+			if ( detectRequested ) {
+				detectRequested = false;
+				detectResult = VR_DETECT_NO_RUNTIME;
+				common->Printf( "VR_DETECT runtime=none headset=no (the OpenXR loader found no runtime to ask)\n" );
+			}
 			return;
 		}
 	}
-	if ( !AcquireSystem() ) {
+	const int queries = systemQueries;
+	const bool hadSystem = systemId != XR_NULL_SYSTEM_ID;
+	const bool found = AcquireSystem();
+	if ( found ? ( !hadSystem || detectRequested ) : systemQueries != queries ) {
+		HeadsetAnswered( found );
+	}
+	if ( !found || !SessionWanted() ) {
 		return;
 	}
 	if ( session == XR_NULL_HANDLE ) {
@@ -2442,6 +2597,167 @@ void idVRSystemOpenXR::StartIfRequested( void ) {
 			nextSessionRetryTime = Sys_Milliseconds() + VR_SYSTEM_RETRY_MSEC;
 		}
 	}
+}
+
+/*
+====================
+VR Mode and headset detection (VR-08)
+
+Off never asks a runtime for anything. On plays in VR whenever a headset is
+there. Automatic asks at launch (VR_BootDecide, before the renderer is
+chosen) and keeps a short window open for a runtime that is still finding
+its headset: a headset that answers inside it starts VR, one that answers
+later is offered (the session's notice, vr_start) rather than switched to
+in the middle of play. Choosing Automatic in the menus opens the window
+again. vr_detect asks once, whatever the mode.
+====================
+*/
+bool idVRSystemOpenXR::SessionWanted( void ) const {
+	const int mode = VR_Mode();
+	return mode == VR_MODE_ON || ( mode == VR_MODE_AUTOMATIC && autoEngaged );
+}
+
+bool idVRSystemOpenXR::InstanceWanted( void ) const {
+	const int mode = VR_Mode();
+	// Automatic asks only a runtime stage one found: with none installed, the
+	// loader could only fail (vr_detect asks the loader regardless)
+	return detectRequested || mode == VR_MODE_ON
+		|| ( mode == VR_MODE_AUTOMATIC && ( autoEngaged || runtimeProbe.source != openq4::xr::RuntimeSource::None ) );
+}
+
+void idVRSystemOpenXR::ProbeRuntime( void ) {
+	runtimeProbe = openq4::xr::ProbeRuntime();
+	runtimeProbed = true;
+	if ( runtimeProbe.source == openq4::xr::RuntimeSource::None ) {
+		common->Printf( "VR_RUNTIME source=none (%s)\n", runtimeProbe.note.c_str() );
+		return;
+	}
+	common->Printf( "VR_RUNTIME source=%s name=\"%s\" manifest=\"%s\"%s\n", openq4::xr::RuntimeSourceName( runtimeProbe.source ),
+		runtimeProbe.name.c_str(), runtimeProbe.manifest.c_str(),
+		runtimeProbe.available > 1 ? va( " installed=%d", runtimeProbe.available ) : "" );
+}
+
+bool idVRSystemOpenXR::BootDecide( void ) {
+	static const char *const modes[3] = { "off", "on", "automatic" };
+	ProbeRuntime();
+	const int mode = VR_Mode();
+	lastMode = mode;
+	common->Printf( "VR_MODE boot mode=%s\n", modes[mode] );
+	if ( mode != VR_MODE_AUTOMATIC ) {
+		return SessionWanted();
+	}
+	if ( runtimeProbe.source == openq4::xr::RuntimeSource::None ) {
+		common->Printf( "VR_MODE decision=desktop reason=no-runtime (Automatic: no OpenXR runtime is installed)\n" );
+		return false;
+	}
+	// The player chose Automatic, so asking the runtime (which may start it,
+	// as SteamVR starts with its first client) is theirs to have asked for.
+	autoDecideUntil = Max( 1, Sys_Milliseconds() + VR_AUTO_DECIDE_MSEC );
+	if ( !CreateInstance() ) {
+		nextInstanceRetryTime = Sys_Milliseconds() + VR_SYSTEM_RETRY_MSEC * 3;
+		return false;
+	}
+	nextSystemRetryTime = 0;
+	const int queries = systemQueries;
+	if ( AcquireSystem() ) {
+		HeadsetAnswered( true );
+	} else if ( systemQueries != queries ) {
+		HeadsetAnswered( false );
+	}
+	return SessionWanted();
+}
+
+void idVRSystemOpenXR::ModeChanged( int mode ) {
+	static const char *const modes[3] = { "off", "on", "automatic" };
+	lastMode = mode;
+	headsetOffered = headsetOfferPending = false;
+	autoDecideUntil = 0;
+	// a headset already in use stays in use when Automatic is chosen in VR
+	autoEngaged = mode == VR_MODE_AUTOMATIC && session != XR_NULL_HANDLE && systemId != XR_NULL_SYSTEM_ID;
+	if ( mode == VR_MODE_AUTOMATIC && !autoEngaged ) {
+		// chosen now, in the menus: a headset that answers soon plays at once
+		if ( !runtimeProbed ) {
+			ProbeRuntime();
+		}
+		autoDecideUntil = Max( 1, Sys_Milliseconds() + VR_AUTO_DECIDE_MSEC );
+	}
+	systemUnavailableLogged = false;
+	common->Printf( "VR_MODE mode=%s%s\n", modes[mode], autoEngaged ? " (keeps the headset in use)" : "" );
+}
+
+void idVRSystemOpenXR::HeadsetAnswered( bool found ) {
+	if ( detectRequested ) {
+		detectRequested = false;
+		detectResult = found ? VR_DETECT_HEADSET : VR_DETECT_NO_HEADSET;
+		common->Printf( "VR_DETECT runtime=\"%s\" headset=%s%s\n", runtimeName.c_str(), found ? "yes" : "no",
+			found ? va( " name=\"%s\"", systemName.c_str() ) : "" );
+	}
+	if ( !found || VR_Mode() != VR_MODE_AUTOMATIC || autoEngaged ) {
+		return;
+	}
+	if ( autoDecideUntil != 0 ) {
+		autoEngaged = true;
+		autoDecideUntil = 0;
+		nextSessionRetryTime = 0;
+		common->Printf( "VR_MODE decision=vr headset=\"%s\" (Automatic: a headset answered; playing in VR)\n", systemName.c_str() );
+	} else if ( !headsetOffered ) {
+		headsetOffered = headsetOfferPending = true;
+		common->Printf( "VR_MODE offer headset=\"%s\" (Automatic: a headset turned up after launch; Play in VR or vr_start takes it)\n",
+			systemName.c_str() );
+	}
+}
+
+void idVRSystemOpenXR::RequestDetect( void ) {
+	// stage one again: a runtime installed or switched since launch counts
+	ProbeRuntime();
+	detectRequested = true;
+	runtimeStopped = false;
+	nextInstanceRetryTime = 0;
+	nextSystemRetryTime = 0;
+}
+
+bool idVRSystemOpenXR::TakeHeadsetOffer( void ) {
+	if ( !HeadsetOffered() ) {
+		return false;
+	}
+	autoEngaged = true;
+	headsetOffered = headsetOfferPending = false;
+	nextSessionRetryTime = 0;
+	common->Printf( "VR_MODE decision=vr reason=offer-taken headset=\"%s\" (Automatic: playing in VR)\n", systemName.c_str() );
+	return true;
+}
+
+bool VR_RuntimeInstalled( void ) {
+	return vrOpenXR != NULL && vrOpenXR->RuntimeProbe().source != openq4::xr::RuntimeSource::None;
+}
+
+const char *VR_RuntimeName( void ) {
+	return vrOpenXR != NULL ? vrOpenXR->RuntimeProbe().name.c_str() : "";
+}
+
+bool VR_BootDecide( void ) {
+	VR_GetOpenXRSystem();
+	return vrOpenXR->BootDecide();
+}
+
+bool VR_WantsRenderer( void ) {
+	return vrOpenXR != NULL && vrOpenXR->SessionWanted();
+}
+
+bool VR_ConsumeHeadsetOffer( void ) {
+	return vrOpenXR != NULL && vrOpenXR->ConsumeHeadsetOffer();
+}
+
+bool VR_HeadsetOffered( void ) {
+	return vrOpenXR != NULL && vrOpenXR->HeadsetOffered();
+}
+
+bool VR_TakeHeadsetOffer( void ) {
+	return vrOpenXR != NULL && vrOpenXR->TakeHeadsetOffer();
+}
+
+int VR_ConsumeDetectResult( void ) {
+	return vrOpenXR != NULL ? vrOpenXR->ConsumeDetectResult() : -1;
 }
 
 /*
@@ -2732,6 +3048,8 @@ void idVRSystemOpenXR::LocateFrame( XrTime time ) {
 	}
 
 	frame.head = ToEnginePose( head.pose, headValid );
+	headLocalPose = head.pose;
+	headLocalValid = headValid;
 	for ( int i = 0; i < VR_NUM_EYES; i++ ) {
 		frame.eyes[i].pose = ToEnginePose( views[i].pose, viewsValid );
 		const vrFovTangents_t fov = VR_FovTangentsFromAngles( views[i].fov.angleLeft, views[i].fov.angleRight, views[i].fov.angleUp, views[i].fov.angleDown );
@@ -2763,6 +3081,8 @@ void idVRSystemOpenXR::LocateFrame( XrTime time ) {
 		}
 		valid = gripSpaces[hand] != XR_NULL_HANDLE && ( location.locationFlags & required ) == required;
 		frame.grip[hand] = ToEnginePose( location.pose, valid );
+		gripLocalPoses[hand] = valid ? location.pose : VR_IdentityPose();
+		gripLocalValid[hand] = valid;
 	}
 }
 
@@ -2915,7 +3235,8 @@ enum vrKeySlot_t {
 	VR_SLOT_OFF_STICK_CLICK,
 	VR_SLOT_WEAPON_STICK_Y,
 	VR_SLOT_MENU_STICK_X,
-	VR_SLOT_MENU_STICK_Y
+	VR_SLOT_MENU_STICK_Y,
+	VR_SLOT_FINGER_PRESS		// the weapon hand's fingertip on the hand panel (TouchPanel)
 };
 
 void idVRSystemOpenXR::SyncInput( float frameSeconds ) {
@@ -3037,6 +3358,10 @@ void idVRSystemOpenXR::SyncInput( float frameSeconds ) {
 	const int heldTrigger = heldKeys[VR_SLOT_WEAPON_TRIGGER];
 	UpdateKey( VR_SLOT_WEAPON_TRIGGER, heldTrigger != 0 ? heldTrigger : ( pointerOnScreen ? K_MOUSE1 : K_JOY15 ),
 		weapon.trigger > ( heldTrigger != 0 ? 0.55f : 0.75f ) );
+	// a click on a menu ticks the hand more firmly than a hover does
+	if ( heldTrigger != K_MOUSE1 && heldKeys[VR_SLOT_WEAPON_TRIGGER] == K_MOUSE1 && vr_menuHaptics.GetBool() ) {
+		Vibrate( weaponHand, 0.5f, 25 );
+	}
 	UpdateKey( VR_SLOT_OFF_TRIGGER, K_JOY16, off.trigger > ( heldKeys[VR_SLOT_OFF_TRIGGER] ? 0.55f : 0.75f ) );
 	UpdateKey( VR_SLOT_WEAPON_SQUEEZE, K_JOY2, weapon.squeeze > ( heldKeys[VR_SLOT_WEAPON_SQUEEZE] ? 0.55f : 0.75f ) );
 	// The off-hand squeeze opens the weapon wheel, unless it closes on the
@@ -3096,17 +3421,40 @@ void idVRSystemOpenXR::SyncInput( float frameSeconds ) {
 		UpdateKey( VR_SLOT_MENU_STICK_Y, stickY > 0.0f ? K_JOY9 : K_JOY10, idMath::Fabs( stickY ) > ( heldY ? 0.35f : 0.75f ) );
 		UpdateKey( VR_SLOT_MENU_STICK_X, stickX > 0.0f ? K_JOY11 : K_JOY12, idMath::Fabs( stickX ) > ( heldX ? 0.35f : 0.75f ) );
 		snapTurn.latched = true;
+		if ( vr_wheelStickX.GetFloat() != 0.0f || vr_wheelStickY.GetFloat() != 0.0f ) {
+			vr_wheelStickX.SetFloat( 0.0f );
+			vr_wheelStickY.SetFloat( 0.0f );
+		}
 	} else {
 		UpdateKey( VR_SLOT_MENU_STICK_X, 0, false );
 		UpdateKey( VR_SLOT_MENU_STICK_Y, 0, false );
-		// weapon stick up / down pages weapons (JOY12 next, JOY11 previous)
-		const int held = heldKeys[VR_SLOT_WEAPON_STICK_Y];
-		UpdateKey( VR_SLOT_WEAPON_STICK_Y, weapon.stickY > 0.0f ? K_JOY12 : K_JOY11, idMath::Fabs( weapon.stickY ) > ( held ? 0.35f : 0.75f )
-			&& idMath::Fabs( weapon.stickY ) > idMath::Fabs( weapon.stickX ) );
-		if ( vr_turnMode.GetInteger() == 1 ) {
-			turn = VR_SmoothTurn( weapon.stickX, vr_smoothTurnSpeed.GetFloat(), frameSeconds, deadzone );
+		// While the weapon wheel (or multiplayer's quick chat) is open, the
+		// weapon-hand stick points at a slot, as a gamepad's stick does, so a
+		// weapon can be picked without swinging the gun off its target. It
+		// neither turns nor pages weapons meanwhile, and a snap turn waits for
+		// the stick to come back to the middle after the wheel closes.
+		const bool radialOpen = cvarSystem->GetCVarInteger( "ui_radialOwner" ) != 0;
+		const float wheelX = radialOpen ? idMath::ClampFloat( -1.0f, 1.0f, weapon.stickX ) : 0.0f;
+		const float wheelY = radialOpen ? idMath::ClampFloat( -1.0f, 1.0f, -weapon.stickY ) : 0.0f;
+		if ( vr_wheelStickX.GetFloat() != wheelX ) {
+			vr_wheelStickX.SetFloat( wheelX );
+		}
+		if ( vr_wheelStickY.GetFloat() != wheelY ) {
+			vr_wheelStickY.SetFloat( wheelY );
+		}
+		if ( radialOpen ) {
+			UpdateKey( VR_SLOT_WEAPON_STICK_Y, 0, false );
+			snapTurn.latched = true;
 		} else {
-			turn = VR_SnapTurn( snapTurn, weapon.stickX, vr_snapTurnAngle.GetFloat() );
+			// weapon stick up / down pages weapons (JOY12 next, JOY11 previous)
+			const int held = heldKeys[VR_SLOT_WEAPON_STICK_Y];
+			UpdateKey( VR_SLOT_WEAPON_STICK_Y, weapon.stickY > 0.0f ? K_JOY12 : K_JOY11, idMath::Fabs( weapon.stickY ) > ( held ? 0.35f : 0.75f )
+				&& idMath::Fabs( weapon.stickY ) > idMath::Fabs( weapon.stickX ) );
+			if ( vr_turnMode.GetInteger() == 1 ) {
+				turn = VR_SmoothTurn( weapon.stickX, vr_smoothTurnSpeed.GetFloat(), frameSeconds, deadzone );
+			} else {
+				turn = VR_SnapTurn( snapTurn, weapon.stickX, vr_snapTurnAngle.GetFloat() );
+			}
 		}
 	}
 
@@ -3396,7 +3744,7 @@ bool idVRSystemOpenXR::ResizeScreenSwapchain( void ) {
 }
 
 void idVRSystemOpenXR::ScreenQuadSize( float &width, float &height ) const {
-	width = idMath::ClampFloat( 0.5f, 12.0f, vr_screenWidth.GetFloat() );
+	width = panelActive ? panelWidth : idMath::ClampFloat( 0.5f, 12.0f, vr_screenWidth.GetFloat() );
 	height = width * static_cast<float>( screenSwapchain.height ) / static_cast<float>( Max( 1, screenSwapchain.width ) );
 }
 
@@ -3412,34 +3760,100 @@ would also take focus from stick navigation.
 void idVRSystemOpenXR::UpdateMenuPointer( int weaponHand, bool menu ) {
 	const bool wasOnScreen = pointerOnScreen;
 	pointerOnScreen = false;
+	fingerOnPanel = false;
 	// the screen re-anchors on the first menu frame: point from the next one
 	if ( !menu || !screenAnchored || lastFrameHud || !aimLocalValid[weaponHand] ) {
 		if ( wasOnScreen && menu ) {
 			Sys_PostVRPointer( false, 0.0f, 0.0f );
 		}
+		TouchPanel( weaponHand, false, 0.0f, 0.0f, 0.0f );
 		return;
 	}
 	float width = 0.0f, height = 0.0f;
 	ScreenQuadSize( width, height );
 	const XrPosef &aim = aimLocalPoses[weaponHand];
 	const vrVec3_t direction = VR_RotateVector( VR_FromXrQuat( aim.orientation ), VR_Vec3( 0.0f, 0.0f, -1.0f ) );
-	const vrQuadHit_t hit = VR_RayQuadIntersect( VR_FromXrVec( aim.position ), direction,
-		VR_FromXrVec( screenAnchor.position ), VR_FromXrQuat( screenAnchor.orientation ), width, height );
+	// The weapon hand's fingertip near the hand panel takes the pointer from
+	// its beam and presses the panel like a touch screen (VRTouchCore.h), once
+	// the panel has grown into place
+	vrQuadTouch_t touch = { false, 0.0f, 0.0f, 0.0f };
+	if ( panelActive && handPanel.open >= 1.0f && gripLocalValid[weaponHand] ) {
+		const vrVec3_t tip = VR_FingertipPoint( VR_FromXrVec( gripLocalPoses[weaponHand].position ), VR_FromXrQuat( aim.orientation ) );
+		touch = VR_QuadTouch( tip, VR_FromXrVec( screenAnchor.position ), VR_FromXrQuat( screenAnchor.orientation ), width, height );
+	}
+	vrQuadHit_t hit = { false, 0.0f, 0.0f, 0.0f };
+	if ( touch.inReach ) {
+		hit.hit = true;
+		hit.u = touch.u;
+		hit.v = touch.v;
+		fingerOnPanel = true;
+		// the pointer sits on the face, under the fingertip
+		const vrVec3_t onFace = VR_Vec3( ( touch.u - 0.5f ) * width, ( 0.5f - touch.v ) * height, 0.0f );
+		pointerHitLocal = VR_ToXrVec( VR_Add( VR_FromXrVec( screenAnchor.position ),
+			VR_RotateVector( VR_QuatNormalize( VR_FromXrQuat( screenAnchor.orientation ) ), onFace ) ) );
+	} else {
+		hit = VR_RayQuadIntersect( VR_FromXrVec( aim.position ), direction,
+			VR_FromXrVec( screenAnchor.position ), VR_FromXrQuat( screenAnchor.orientation ), width, height );
+		if ( hit.hit ) {
+			pointerHitLocal = VR_ToXrVec( VR_Add( VR_FromXrVec( aim.position ), VR_Scale( direction, hit.distance ) ) );
+		}
+	}
 	if ( !hit.hit ) {
 		if ( wasOnScreen ) {
 			Sys_PostVRPointer( false, 0.0f, 0.0f );
 		}
+		TouchPanel( weaponHand, false, 0.0f, 0.0f, 0.0f );
 		return;
 	}
 	const float deadBand = 0.0015f;
 	if ( wasOnScreen && idMath::Fabs( hit.u - pointerU ) < deadBand && idMath::Fabs( hit.v - pointerV ) < deadBand ) {
 		pointerOnScreen = true;
-		return;
-	}
-	if ( Sys_PostVRPointer( true, hit.u, hit.v ) ) {
+	} else if ( Sys_PostVRPointer( true, hit.u, hit.v ) ) {
 		pointerOnScreen = true;
 		pointerU = hit.u;
 		pointerV = hit.v;
+	}
+	// the pointer moves before the button goes down, so the press lands under the fingertip
+	TouchPanel( weaponHand, fingerOnPanel && pointerOnScreen, touch.distance, hit.u, hit.v );
+	// A light tick in the pointing hand as the pointer moves onto another
+	// control: the controls also grow and light up under it (VR-09). The menu
+	// finds the control a frame after the pointer moves, while the hand holds
+	// still inside the dead band, so this looks every frame.
+	const unsigned int hover = RetainedUI_HoverGeneration();
+	if ( hover != hoverGeneration ) {
+		hoverGeneration = hover;
+		if ( pointerOnScreen && vr_menuHaptics.GetBool() ) {
+			Vibrate( weaponHand, 0.15f, 12 );
+		}
+	}
+}
+
+/*
+====================
+idVRSystemOpenXR::TouchPanel
+
+One poke of the weapon hand's fingertip on the hand panel is one click
+(VR_TouchStep), a mouse button pressed on contact and released as the finger
+draws back, with a firmer tick than a hover's. While the trigger already
+holds a click there, the fingertip leaves it alone.
+====================
+*/
+void idVRSystemOpenXR::TouchPanel( int hand, bool touching, float distance, float u, float v ) {
+	const bool triggerClicks = heldKeys[VR_SLOT_WEAPON_TRIGGER] == K_MOUSE1;
+	const vrTouchEvent_t event = VR_TouchStep( panelTouch, touching && !triggerClicks, distance, Sys_Milliseconds() );
+	if ( event == VR_TOUCH_DOWN ) {
+		UpdateKey( VR_SLOT_FINGER_PRESS, K_MOUSE1, true );
+		if ( vr_menuHaptics.GetBool() ) {
+			Vibrate( hand, 0.5f, 25 );
+		}
+		if ( vr_debug.GetInteger() > 0 ) {
+			common->Printf( "OpenXR: fingertip press on the hand panel at %.3f %.3f, %.1f mm\n", u, v, distance * 1000.0f );
+		}
+	} else if ( event == VR_TOUCH_UP ) {
+		UpdateKey( VR_SLOT_FINGER_PRESS, 0, false );
+		if ( vr_debug.GetInteger() > 0 ) {
+			common->Printf( "OpenXR: fingertip release on the hand panel\n" );
+		}
 	}
 }
 
@@ -3567,16 +3981,67 @@ void idVRSystemOpenXR::DrawMenuPointer( void ) {
 	if ( pointerMaterial == NULL ) {
 		pointerMaterial = declManager->FindMaterial( "_white" );
 	}
-	// the 640x480 canvas stretches over the screen: keep the dot square
+	// the 640x480 canvas stretches over the screen: keep the dot round
 	const float aspect = static_cast<float>( screenSwapchain.width ) / static_cast<float>( screenSwapchain.height );
-	const float height = 7.0f;
-	const float width = height * ( 4.0f / 3.0f ) / aspect;
+	const float radiusY = 7.0f;
+	const float radiusX = radiusY * ( 4.0f / 3.0f ) / aspect;
 	const float x = pointerU * static_cast<float>( SCREEN_WIDTH );
 	const float y = pointerV * static_cast<float>( SCREEN_HEIGHT );
-	renderSystem->SetColor4( 0.0f, 0.0f, 0.0f, 0.8f );
-	renderSystem->DrawStretchPic( x - width, y - height, width * 2.0f, height * 2.0f, 0.0f, 0.0f, 1.0f, 1.0f, pointerMaterial );
+	// a dark ring around a white dot, both drawn as fans
+	const int segments = 20;
+	const float rings[2] = { 1.0f, 0.5f };
+	const float shades[2][4] = { { 0.0f, 0.0f, 0.0f, 0.8f }, { 1.0f, 1.0f, 1.0f, 1.0f } };
+	const idVec2 centre( x, y );
+	for ( int ring = 0; ring < 2; ring++ ) {
+		renderSystem->SetColor4( shades[ring][0], shades[ring][1], shades[ring][2], shades[ring][3] );
+		idVec2 previous( x + radiusX * rings[ring], y );
+		for ( int i = 1; i <= segments; i++ ) {
+			float s, c;
+			idMath::SinCos( idMath::TWO_PI * static_cast<float>( i ) / static_cast<float>( segments ), s, c );
+			// the canvas runs down the screen: going round the other way in it
+			// keeps the winding the 2D pass draws (as VR_DrawEyeDisc does)
+			const idVec2 next( x + radiusX * rings[ring] * c, y - radiusY * rings[ring] * s );
+			renderSystem->DrawStretchTri( centre, previous, next, vec2_origin, vec2_origin, vec2_origin, pointerMaterial );
+			previous = next;
+		}
+	}
 	renderSystem->SetColor4( 1.0f, 1.0f, 1.0f, 1.0f );
-	renderSystem->DrawStretchPic( x - width * 0.5f, y - height * 0.5f, width, height, 0.0f, 0.0f, 1.0f, 1.0f, pointerMaterial );
+}
+
+/*
+====================
+idVRSystemOpenXR::PlaceHandPanel
+
+A menu during play grows out of the off hand on a panel it holds
+(vr_menuAnchor 1, VRPanelCore.h): the world stays in view around it, and
+the weapon hand points at it. False when the off hand or the head is not
+tracked, and the screen hangs in front instead.
+====================
+*/
+bool idVRSystemOpenXR::PlaceHandPanel( int offHand ) {
+	if ( !gripLocalValid[offHand] || !headLocalValid ) {
+		return false;
+	}
+	const int now = Sys_Milliseconds();
+	const float seconds = panelMsec != 0 ? static_cast<float>( now - panelMsec ) * 0.001f : 0.0f;
+	panelMsec = now;
+	const float width = idMath::ClampFloat( 0.3f, 1.2f, vr_menuWidth.GetFloat() );
+	const float height = width * static_cast<float>( screenSwapchain.height ) / static_cast<float>( Max( 1, screenSwapchain.width ) );
+	const vrVec3_t hand = VR_FromXrVec( gripLocalPoses[offHand].position );
+	if ( VR_HandPanelStep( handPanel, hand, VR_FromXrVec( headLocalPose.position ), height, seconds ) ) {
+		if ( vr_menuHaptics.GetBool() ) {
+			Vibrate( offHand, 0.25f, 30 );
+		}
+		if ( vr_debug.GetInteger() > 0 ) {
+			common->Printf( "OpenXR: the menu panel grows out of the %s hand\n", offHand == VR_HAND_LEFT ? "left" : "right" );
+		}
+	}
+	screenAnchor.position = VR_ToXrVec( VR_HandPanelDrawnCentre( handPanel, hand ) );
+	screenAnchor.orientation = VR_ToXrQuat( handPanel.orientation );
+	panelWidth = width * VR_HandPanelDrawnScale( handPanel );
+	screenAnchored = true;
+	panelActive = true;
+	return true;
 }
 
 // The virtual screen hangs straight ahead of the head's current heading, at
@@ -3674,6 +4139,23 @@ void idVRSystemOpenXR::BeginFrame( void ) {
 		return;
 	}
 
+	// the menu's pointer beam, for the eyes to draw from the weapon hand (VR-09)
+	{
+		const int weaponHand = vr_leftHanded.GetBool() ? VR_HAND_LEFT : VR_HAND_RIGHT;
+		// the HUD and a menu draw into the one screen image; a menu shows only
+		// its buttons over the world, so the HUD must not show through it
+		frame.menuUp = ::session != NULL && ::session->IsGUIActive();
+		frame.menuPointer = MenuMode() && screenAnchored && !lastFrameHud && aimLocalValid[weaponHand];
+		frame.menuPointerHit = frame.menuPointer && pointerOnScreen;
+		if ( frame.menuPointerHit ) {
+			XrPosef end = VR_IdentityPose();
+			end.position = pointerHitLocal;
+			frame.menuPointerEnd = ToEnginePose( end, true ).origin;
+		} else {
+			frame.menuPointerEnd.Zero();
+		}
+	}
+
 	frame.frameNumber++;
 	frame.focused = sessionFocused;
 	frame.aimMode = vr_aimMode.GetInteger();
@@ -3714,6 +4196,12 @@ void idVRSystemOpenXR::BeginFrame( void ) {
 		renderFrame.screenImage = static_cast<unsigned int>( screenImage );
 	}
 	renderFrame.mirror = idMath::ClampInt( RENDER_VR_MIRROR_NONE, RENDER_VR_MIRROR_SCREEN, vr_mirror.GetInteger() );
+	// The runtime composites a menu's screen over the eyes, so the left eye's
+	// image has no menu in it: while one is up, the desktop shows what the
+	// headset does by mirroring the screen (VR-09).
+	if ( renderFrame.mirror == RENDER_VR_MIRROR_EYE && MenuMode() ) {
+		renderFrame.mirror = RENDER_VR_MIRROR_SCREEN;
+	}
 	renderSystem->SetVRFrame( &renderFrame );
 
 	frame.active = true;
@@ -3765,9 +4253,22 @@ void idVRSystemOpenXR::EndFrame( void ) {
 	}
 
 	if ( result.presented ) {
-		// gameplay keeps the HUD in view; menus, loading and cinematics get a
-		// screen that stays where it was hung
+		// gameplay keeps the HUD in view; menus during play grow out of the off
+		// hand (vr_menuAnchor 1); the title, loading and cinematics get a screen
+		// that stays where it was hung
 		const bool hud = stereo && !MenuMode();
+		const int offHand = vr_leftHanded.GetBool() ? VR_HAND_RIGHT : VR_HAND_LEFT;
+		const bool handMenu = !hud && stereo && vr_menuAnchor.GetInteger() == 1 && PlaceHandPanel( offHand );
+		if ( !handMenu ) {
+			// the next panel grows out of the hand again; a screen hung in front
+			// is hung afresh rather than where the panel was
+			handPanel.valid = false;
+			panelMsec = 0;
+			if ( panelActive ) {
+				panelActive = false;
+				screenAnchored = false;
+			}
+		}
 		float screenWidth = 0.0f, screenHeight = 0.0f;
 		ScreenQuadSize( screenWidth, screenHeight );
 		memset( &quad, 0, sizeof( quad ) );
@@ -3786,6 +4287,10 @@ void idVRSystemOpenXR::EndFrame( void ) {
 			quad.pose.position.z = -idMath::ClampFloat( 0.5f, 5.0f, vr_hudDistance.GetFloat() );
 			quad.size.width = idMath::ClampFloat( 0.3f, 4.0f, vr_hudWidth.GetFloat() );
 			quad.size.height = quad.size.width * screenHeight / screenWidth;
+			// With the status on the wrists (vr_hudMode 1) the game draws the
+			// wrist displays in the eyes and leaves on this layer only what
+			// must be seen without looking down: captions, the weapon wheel, a
+			// vehicle's HUD, the multiplayer overlay (VR-09).
 		} else {
 			if ( !screenAnchored || lastFrameHud ) {
 				AnchorScreen();
@@ -3797,6 +4302,10 @@ void idVRSystemOpenXR::EndFrame( void ) {
 			quad.pose = screenAnchor;
 			quad.size.width = screenWidth;
 			quad.size.height = screenHeight;
+			// the panel in the hand lets the world show round what the menu draws
+			if ( handMenu ) {
+				quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+			}
 		}
 		layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader *>( &quad );
 		lastFrameHud = hud;

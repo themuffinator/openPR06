@@ -38,6 +38,7 @@ static void Record(const char* kind,int id=0,double time=-1) { events.push_back(
 namespace openq4::ui {
 struct Viewport { int width=0,height=0; float displayScale=1,userScale=1,pixelDensityX=1,pixelDensityY=1,originX=0,originY=0,textScale=1;
     float safeLeft=0,safeTop=0,safeRight=0,safeBottom=0;
+    InterfaceVariant variant=InterfaceVariant::Desktop; InterfaceDeviceClass device=InterfaceDeviceClass::Desk; bool keyboard=true,mouse=true;
     int fits=0;float minimumWidth=0,minimumHeight=0;
     void FitToMinimum(float w,float h){++fits;minimumWidth=w;minimumHeight=h;}
 };
@@ -147,7 +148,10 @@ struct CVar {
     float value;
     float GetFloat() const { return value; }
     bool GetBool() const { return value!=0; }
-} ui_retainedDensity{0},ui_retainedScale{1.5f},ui_retainedTextScale{1.75f},ui_retainedReducedMotion{0},ui_retainedWarm{1};
+} ui_retainedDensity{0},ui_retainedScale{1.5f},ui_retainedTextScale{1.75f},ui_retainedReducedMotion{0},ui_retainedWarm{1},
+  ui_retainedVRTextScale{1.25f};
+// No headset presents here: the VR text floor stays out of the viewport.
+struct VRSystem { bool IsActive() const { return false; } } vrSystemObject, *vrSystem=&vrSystemObject;
 struct StringCVar {
     std::string value;
     const char* GetString() const { return value.c_str(); }
@@ -157,6 +161,14 @@ static int LangDict_GetCodePageGeneration() { return codePageGeneration; }
 '''
 
 HELPERS = r'''
+// The interface variant's resolution has its own native test; here a phone's
+// signals show the viewport carries what the refresh applied.
+struct { openq4::ui::InterfaceVariantTracker tracker; openq4::ui::InterfaceSignals signals; } interfaceVariantState;
+static int interfaceRefreshes=0;
+void RefreshInterfaceVariant() {
+    ++interfaceRefreshes; interfaceVariantState.signals={}; interfaceVariantState.signals.mobileBuild=true; interfaceVariantState.signals.mouse=true;
+    interfaceVariantState.tracker.Update(interfaceVariantState.signals,openq4::ui::InterfaceVariantRequest::Auto);
+}
 void RetainedUI_EndInitialization() { Record("end-initialization"); }
 void SetApplicationOpen(bool value) { applicationOpen.store(value); }
 void CancelInput(bool=false,bool=true) { Record("cancel-preview"); }
@@ -265,6 +277,8 @@ int main() {
     assert(viewport.textScale==1.75f);
     assert(viewport.fits==1 && viewport.minimumWidth==640 && viewport.minimumHeight==480);
     assert(!viewport.safeLeft && !viewport.safeTop && !viewport.safeRight && !viewport.safeBottom);
+    assert(interfaceRefreshes==1 && viewport.variant==openq4::ui::InterfaceVariant::Touch &&
+           viewport.device==openq4::ui::InterfaceDeviceClass::Phone && !viewport.keyboard && viewport.mouse);
     // Window insets count only where they reach past the UI viewport's own
     // margin; test insets apply where they reach further; a malformed or
     // non-finite test value sets none.
@@ -366,7 +380,10 @@ def main():
         'bool RetainedUI_WarmViewRoot(',
         'void RetainedUI_Shutdown()',
     )
-    code = SUPPORT + header.replace('#pragma once', '').replace('#include "retained/DocumentEdit.h"', '') + view + globals_source + HELPERS
+    variant = (ROOT / 'src/ui/retained/InterfaceVariant.h').read_text(encoding='utf-8').replace('#pragma once', '')
+    code = (SUPPORT.replace('namespace openq4::ui {', variant + '\nnamespace openq4::ui {', 1) +
+            header.replace('#pragma once', '').replace('#include "retained/DocumentEdit.h"', '').replace('#include "retained/InterfaceVariant.h"', '') +
+            view + globals_source + HELPERS)
     code += '\n'.join(function_body(source, signature) for signature in signatures) + MAIN
     compiler = next((found for name in ('clang++', 'g++', 'c++') if (found := shutil.which(name))), None)
     if not compiler:

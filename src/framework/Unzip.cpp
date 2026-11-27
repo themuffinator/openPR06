@@ -253,25 +253,42 @@ static uLong unzlocal_SearchCentralDir(FILE *fin)
 }
 
 /*
-  openPR06: every member read used to open the pack file again (a CreateFile,
-  a stat and a CloseHandle per member, thousands per level load). Read handles
-  are now kept per pack path once their reader closes and handed to the next
-  reader. A handle belongs to exactly one reader at a time; every read seeks
-  before it reads, so a reused FILE needs no other reset than clearerr. A
-  generation per path retires the handles of a pack that has been released
-  (pack reload, file system restart) even if a reader still holds one.
+  Pack read-handle reuse: every member read used to open the pack file again
+  (a CreateFile, a stat and a CloseHandle per member, thousands per level
+  load). Read handles are now kept per pack path once their reader closes
+  and handed to the next reader. A handle belongs to exactly one reader at a
+  time; every read seeks before it reads, so a reused FILE needs no other
+  reset than clearerr. A generation per path retires the handles of a pack
+  that has been released (pack reload, file system restart) even if a reader
+  still holds one.
+
+  Idle handles are capped per pack and in total, so the pool never holds more
+  than a few dozen extra descriptors: the MSVC CRT allows 512 FILE streams by
+  default and macOS starts processes with a 256-descriptor soft limit.
+
+  The pool is allocated once and never freed, so a reader closed during static
+  destruction cannot touch a destroyed mutex or map.
 */
 namespace {
 	struct unzPooledHandle_t {
 		std::string	path;
 		unsigned	generation;
 	};
-	std::mutex										unzPoolLock;
-	std::atomic<bool>								unzHandleReuse( true );
-	std::unordered_map<std::string, std::vector<FILE *>>	unzIdleHandles;
-	std::unordered_map<std::string, unsigned>		unzPathGeneration;
-	std::unordered_map<FILE *, unzPooledHandle_t>	unzOwnedHandles;
-	const size_t									UNZ_MAX_IDLE_HANDLES_PER_PACK = 16;
+	struct unzHandlePool_t {
+		std::mutex											lock;
+		std::unordered_map<std::string, std::vector<FILE *>>	idle;
+		std::unordered_map<std::string, unsigned>			generation;
+		std::unordered_map<FILE *, unzPooledHandle_t>		owned;
+		size_t												idleTotal = 0;
+	};
+	std::atomic<bool>	unzHandleReuse( true );
+	const size_t		UNZ_MAX_IDLE_HANDLES_PER_PACK = 16;
+	const size_t		UNZ_MAX_IDLE_HANDLES_TOTAL = 64;
+
+	unzHandlePool_t &UnzHandlePool( void ) {
+		static unzHandlePool_t *pool = new unzHandlePool_t;
+		return *pool;
+	}
 }
 
 void unzSetHandleReuse( bool enable ) {
@@ -279,17 +296,19 @@ void unzSetHandleReuse( bool enable ) {
 }
 
 void unzReleaseIdleHandles( const char *path ) {
+	unzHandlePool_t &pool = UnzHandlePool();
 	std::vector<FILE *> idle;
 	{
-		std::lock_guard<std::mutex> lock( unzPoolLock );
-		unzPathGeneration[ path ]++;
-		auto entry = unzIdleHandles.find( path );
-		if ( entry != unzIdleHandles.end() ) {
+		std::lock_guard<std::mutex> lock( pool.lock );
+		pool.generation[ path ]++;
+		auto entry = pool.idle.find( path );
+		if ( entry != pool.idle.end() ) {
 			idle.swap( entry->second );
-			unzIdleHandles.erase( entry );
+			pool.idle.erase( entry );
 		}
+		pool.idleTotal -= idle.size();
 		for ( FILE *f : idle ) {
-			unzOwnedHandles.erase( f );
+			pool.owned.erase( f );
 		}
 	}
 	for ( FILE *f : idle ) {
@@ -303,13 +322,18 @@ extern unzFile unzReOpen (const char* path, unzFile file)
 	FILE * fin = NULL;
 
 	const bool reuse = unzHandleReuse.load( std::memory_order_relaxed );
+	unsigned generation = 0;
 	if ( reuse ) {
-		std::lock_guard<std::mutex> lock( unzPoolLock );
-		auto entry = unzIdleHandles.find( path );
-		if ( entry != unzIdleHandles.end() && !entry->second.empty() ) {
+		unzHandlePool_t &pool = UnzHandlePool();
+		std::lock_guard<std::mutex> lock( pool.lock );
+		auto entry = pool.idle.find( path );
+		if ( entry != pool.idle.end() && !entry->second.empty() ) {
 			fin = entry->second.back();
 			entry->second.pop_back();
+			pool.idleTotal--;
 		}
+		// taken before the open, so a release racing it retires this handle
+		generation = pool.generation[ path ];
 	}
 	if ( fin != NULL ) {
 		clearerr( fin );
@@ -318,8 +342,9 @@ extern unzFile unzReOpen (const char* path, unzFile file)
 		if (fin==NULL)
 			return NULL;
 		if ( reuse ) {
-			std::lock_guard<std::mutex> lock( unzPoolLock );
-			unzOwnedHandles[ fin ] = { path, unzPathGeneration[ path ] };
+			unzHandlePool_t &pool = UnzHandlePool();
+			std::lock_guard<std::mutex> lock( pool.lock );
+			pool.owned[ fin ] = { path, generation };
 		}
 	}
 
@@ -448,18 +473,23 @@ extern int unzClose (unzFile file)
 
 	{
 		// a reader's handle goes back to its pack's idle list
-		std::lock_guard<std::mutex> lock( unzPoolLock );
-		auto owned = unzOwnedHandles.find( s->file );
-		if ( owned != unzOwnedHandles.end() ) {
-			const auto generation = unzPathGeneration.find( owned->second.path );
-			const bool current = generation != unzPathGeneration.end() && generation->second == owned->second.generation;
-			std::vector<FILE *> &idle = unzIdleHandles[ owned->second.path ];
-			if ( current && unzHandleReuse.load( std::memory_order_relaxed ) && idle.size() < UNZ_MAX_IDLE_HANDLES_PER_PACK ) {
-				idle.push_back( s->file );
-				TRYFREE(s);
-				return UNZ_OK;
+		unzHandlePool_t &pool = UnzHandlePool();
+		std::lock_guard<std::mutex> lock( pool.lock );
+		auto owned = pool.owned.find( s->file );
+		if ( owned != pool.owned.end() ) {
+			const auto generation = pool.generation.find( owned->second.path );
+			const bool current = generation != pool.generation.end() && generation->second == owned->second.generation;
+			if ( current && unzHandleReuse.load( std::memory_order_relaxed ) &&
+				pool.idleTotal < UNZ_MAX_IDLE_HANDLES_TOTAL ) {
+				std::vector<FILE *> &idle = pool.idle[ owned->second.path ];
+				if ( idle.size() < UNZ_MAX_IDLE_HANDLES_PER_PACK ) {
+					idle.push_back( s->file );
+					pool.idleTotal++;
+					TRYFREE(s);
+					return UNZ_OK;
+				}
 			}
-			unzOwnedHandles.erase( owned );
+			pool.owned.erase( owned );
 		}
 	}
 	fclose(s->file);

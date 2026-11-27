@@ -225,6 +225,10 @@ static void WidgetsAtRest(TestHost& host) {
 	Check(Near(view.BoxOf("slider-fill").width,150),"a resting slider follows its readback");
 	for (int frame=0;frame<2;++frame) view.Frame();
 	Check(quiet() && host.HasColour(0,1,0),"widgets rest again with their new values");
+	// Settled widgets let a recorded frame replay; an open list never does.
+	bool replayed=false;
+	for (int frame=0;frame<6 && !replayed;++frame) { view.Frame(); replayed=view.runtime.Statistics().frameReplays>0; }
+	Check(replayed && host.HasColour(0,1,0),"a page of settled widgets replays its recorded frame");
 	view.runtime.FocusControl("choice",view.time);view.Key(MenuInput::Accept);
 	for (int frame=0;frame<3;++frame) {
 		view.Frame();

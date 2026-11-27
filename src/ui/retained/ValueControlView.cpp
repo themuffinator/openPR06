@@ -178,9 +178,9 @@ struct ValueControlView::Impl {
 	std::unordered_map<std::string_view,Rml::Element*> elements;
 	std::unordered_map<std::string_view,const std::map<std::string,Value>*> authored;
 	std::map<std::pair<std::string,std::string>,Applied,AppliedLess> applied;
-	// openPR06: the nodes a choice's paint writes (its popup's subtree), its
-	// value text, whose text alone it writes, and the nodes whose opacity its
-	// popup's filter reads.
+	// openPR06: the nodes a choice's paint writes (its popup's subtree and its
+	// parts), its value text, whose text alone it writes, and the nodes whose
+	// opacity its popup's filter reads.
 	std::unordered_set<std::string> paintedNodes, valueTexts, opacityNodes;
 	std::uint64_t choiceRepaints = 0;
 	Rml::Element* Element(const std::string& id) const { const auto found = elements.find(id); return found == elements.end() ? nullptr : found->second; }
@@ -648,15 +648,19 @@ bool ValueControlView::Initialize(std::shared_ptr<const DocumentModel> model, Rm
 		// The value text's only painted property is its text: the focus
 		// colour a page animates on it leaves every list's paint standing.
 		if (!choice->valueText.empty()) candidate->valueTexts.insert(choice->valueText);
+		auto& painted = candidate->paintedNodes;
+		for (const auto* part : {&choice->popup,&choice->viewport,&choice->content})
+			if (!part->empty()) painted.insert(*part);
+		for (const auto& option : choice->options)
+			for (const auto* part : {&option.node,&option.labelPart,&option.selectedPart,&option.highlightPart})
+				if (!part->empty()) painted.insert(*part);
 		if (const auto found = nodes.find(choice->popup); found != nodes.end()) {
 			std::vector<const Node*> subtree{found->second};
 			while (!subtree.empty()) {
 				const auto* node = subtree.back(); subtree.pop_back();
-				candidate->paintedNodes.insert(node->id);
+				painted.insert(node->id);
 				for (const auto& child : node->children) subtree.push_back(&child);
 			}
-		} else {
-			candidate->paintedNodes.insert(choice->popup);
 		}
 	}
 	for (const auto& [id,entry] : candidate->entries) if (const auto* choice = std::get_if<ChoiceSpec>(&entry.control.widget)) {

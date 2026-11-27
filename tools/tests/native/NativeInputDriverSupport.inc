@@ -14,6 +14,9 @@ bool idKeyInput::down[K_LAST_KEY]={};
 struct KeySlot{bool& down;};
 static constexpr int MAX_KEYS=K_LAST_KEY;
 static bool Key_IsControllerKey(int){return false;}
+// openPR06: openQ4's VR pointer reads these in PreliminaryKeyEvent
+static bool Key_IsMouseKey(int){return false;}
+static bool VR_HasInputFocus(){return false;}
 static int key_lastInputFamily=0;static constexpr int KEY_INPUT_FAMILY_CONTROLLER=1,KEY_INPUT_FAMILY_DESKTOP=2;
 struct KeySlots{bool operator!=(std::nullptr_t)const{return true;}KeySlot operator[](int key){return {idKeyInput::down[key]};}} keys;
 struct Commands {

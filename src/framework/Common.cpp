@@ -215,6 +215,7 @@ static idCVar vr_hudHeightDefaultMigrated( "vr_hudHeightDefaultMigrated", "0", C
 static idCVar s_audioDefaultsMigrated( "s_audioDefaultsMigrated", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER, "number of one-time audio default migrations already applied" );
 static idCVar r_preyDefaultsMigrated( "r_preyDefaultsMigrated", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER, "number of one-time openPR06 renderer default migrations already applied" );
 static idCVar ui_retainedDefaultMigrated( "ui_retainedDefaultMigrated", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL, "one-time migration flag for openPR06's retained interface default" );
+static idCVar net_createServerMigrated( "net_createServerMigrated", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL, "one-time migration flag for Create Server's default name and its bots" );
 
 static void Common_MigrateLegacyConsoleAllowCVar( void ) {
 	idCVar *legacyAllowConsole = cvarSystem->Find( "com_allowConsole" );
@@ -546,6 +547,38 @@ static void Common_MigratePreyRetainedInterfaceDefault( void ) {
 		cvarSystem->SetCVarBool( "ui_retained", true, CVAR_ARCHIVE );
 	}
 	ui_retainedDefaultMigrated.SetBool( true );
+}
+
+/*
+==================
+Common_MigrateLegacyCreateServer
+
+OPENPR06: Create Server's settings saved before 28 November 2026, once.
+si_name is archived, so every configuration written before the default became
+"openPR06 Server" saved the retail "Prey Server" and would keep it; only that
+exact default moves, and a name someone chose stays. The Bots tab of 0.15.0
+saved how many bots a server starts with (net_serverMenuBots, no longer
+declared); it now sets Minimum Players (bot_minPlayers), so a count of N
+carries over as N + 1 players, the host and N bots, unless Minimum Players
+was set already.
+==================
+*/
+static void Common_MigrateLegacyCreateServer( void ) {
+	if ( net_createServerMigrated.GetBool() ) {
+		return;
+	}
+	const char *serverName = cvarSystem->GetCVarString( "si_name" );
+	if ( serverName != NULL && idStr::Cmp( serverName, "Prey Server" ) == 0 ) {
+		common->Printf( "Migrating legacy server name: si_name \"Prey Server\" -> \"openPR06 Server\"\n" );
+		cvarSystem->SetCVarString( "si_name", "openPR06 Server", CVAR_ARCHIVE );
+	}
+	const int menuBots = cvarSystem->GetCVarInteger( "net_serverMenuBots" );
+	if ( menuBots > 0 && cvarSystem->GetCVarInteger( "bot_minPlayers" ) == 0 ) {
+		const int minPlayers = Min( menuBots + 1, MAX_ASYNC_CLIENTS );
+		common->Printf( "Migrating Create Server bots: net_serverMenuBots %d -> bot_minPlayers %d\n", menuBots, minPlayers );
+		cvarSystem->SetCVarInteger( "bot_minPlayers", minPlayers, CVAR_ARCHIVE );
+	}
+	net_createServerMigrated.SetBool( true );
 }
 
 static int commonLastPresentationCap = -1;
@@ -9045,6 +9078,7 @@ void idCommonLocal::InitGame( void ) {
 	Common_MigrateLegacyAudioDefaults();
 	Common_MigratePreyRendererDefaults();	// OPENPR06
 	Common_MigratePreyRetainedInterfaceDefault();	// OPENPR06
+	Common_MigrateLegacyCreateServer();	// OPENPR06
 
 	// cvars are initialized, but not the rendering system. Allow preference startup dialog
 	Sys_DoPreferences();

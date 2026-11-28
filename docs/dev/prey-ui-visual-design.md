@@ -1,6 +1,6 @@
 # openPR06 UI Visual Design
 
-Specification version 1.32, 25 November 2026.
+Specification version 1.33, 28 November 2026.
 
 Status: reference survey and design contract. openPR06 presents the retained
 interface by default (`ui_retained 1`, since 0.15.0); `ui_retained 0` renders
@@ -2174,6 +2174,15 @@ page up to 28.
   title.
 - *Sliders.* The stock rail with its tick dots and ring knob (`prey.slider`)
   in the value part, less 44 u for the number after it.
+- *Picture choices.* A choice whose options are pictures (Crosshair) takes
+  two slots (45 u) and shows its current picture in the value part on a
+  `#5A6E80` backing at 0.55, or the off option's name. Its list unfolds as
+  tiles, five a line, 44 u tall with the picture at 40 u (a little over the
+  HUD's 32 u), each on that backing so the dark crosshairs read as the light
+  ones do; the off option is a struck-through ring in `prey.text.value`. The
+  highlighted tile takes `prey.list.selection` and the current one its
+  outline, as list rows do. Left and Right step a tile and Up and Down a line
+  (the choice control's `columns`).
 
 **The tree.** Rows marked *new* were not on the stock page.
 
@@ -2422,10 +2431,17 @@ the 570x370 u tab page as Options' do.
 - **Player Settings.** The name, data rate and weapon switch rows at the
   stock places (530x25 u, the label centred in the leading half, the value in
   the trailing half); the chosen model's portrait (128 u, in a picture
-  frame) and name; and the 30 models' portraits on two numbered tabs, five
-  across and three down (58 u on a 62 u pitch), drawn at 0.8 at rest and in
-  full under the pointer or focus, the chosen one outlined. A portrait
-  chooses its model (`ui_modelNum`). Data Rate offers the stock ISDN,
+  frame) and name; and the 30 models' portraits, fifteen to a page, five
+  across and three down (58 u on a 62 u pitch) in a `prey.separator` outline
+  at 0.55, drawn at 0.8 at rest and in full under the pointer or focus, the
+  chosen one outlined. A portrait chooses its model (`ui_modelNum`).
+  Previous and Next arrows turn the pages: 22x64 u capsules 8 u off the
+  grid's leading and trailing edges, graded as a button's plate with a
+  `prey.text.button` chevron that turns white under the pointer or focus
+  (focus adds the `prey.rail` outline), the one at the first or last page
+  drawn at 0.30. A dot for each page over the grid fills in `prey.rail` for
+  the page that shows; an arrow that reaches the end hands the focus to the
+  other, and turning flips the page with the tab sound. Data Rate offers the stock ISDN,
   DSL/Cable and T1/LAN (16000, 24000 and 32000) and Broadband (128000,
   openPR06's default), slowest first; another value shows as its number.
 - **Create Server.** The stock Create and Advanced side tabs and openPR06's
@@ -2439,16 +2455,24 @@ the 570x370 u tab page as Options' do.
   Advanced has its heading bar and the password, remote console, reload,
   server-side mods, map cycle, pure and rate rows; the password dims while
   Use Password is No, the map cycle file while Run Map Cycle Script is No.
-  Bots has its heading bar, Number of Bots (0 to 31, `net_serverMenuBots`),
-  Bot Skill, Skill Spread, Bot Chat and Named Characters (`bot_skill`,
-  `bot_skillVariance`, `bot_chat`, `bot_characters`), the last four dimmed
-  while the count is 0, and a note at 0.26 in `#BFD1FF` at 0.72 on what bots
+  Configure Server Rate offers today's upload speeds: No Change, 5, 10 and
+  25 Mbit, Fiber (50 Mbit and up) and LAN, a per-client cap of 32000, 64000,
+  80000 and 128000 B/s for up to 16, 16, 32 and 32 players, and 128000 on a
+  LAN (the stock 128 to 512 kbit presets held a listen server to two to four
+  players and its LAN preset to 25600).
+  Bots has its heading bar, Minimum Players (0 to 32, `bot_minPlayers`):
+  bots keep the server up to that many players, leaving as people join and
+  coming back as they leave. Then Bot Skill, Skill Spread, Bot Chat and
+  Named Characters (`bot_skill`, `bot_skillVariance`, `bot_chat`,
+  `bot_characters`), the last four dimmed while Minimum Players is 0, and a
+  note at 0.26 in `#BFD1FF` at 0.72 on what bots
   do. Typed values (the names, passwords, map cycle file and the numbers)
   sit in a black well at 0.45 inset 3 u from the plate's top and foot and
   clear of its slanted end, so an empty field still reads as one. Create on
   each side tab (120x30 u, 284 u below the inner page's rows) starts the
   server as the stock button does (`StartMenuServer`, with its warnings),
-  which hands the bot count to the game's `g_artificialPlayerCount`.
+  which clears any fixed bot count (`g_artificialPlayerCount`) so that only
+  Minimum Players brings bots in (`idGameLocal::ReconcileArtificialPlayers`).
   The verbs are the Create Server page's (`HandleRetainedCreateServerRequest`),
   which offer Prey's two game types, up to 32 players and a frag limit of
   at most 100 (`MP_PLAYER_MAXFRAGS`). Server Type and
@@ -2457,8 +2481,13 @@ the 570x370 u tab page as Options' do.
 - **Find Servers.** The server list with its column headings (each sorts its
   column; the lock column, which leads, sorts by password, and Server takes
   the 228 u the stock game and PunkBuster icon columns left), the passworded
-  servers' lock, Quick Refresh, Refresh All and the Internet and LAN source;
-  while the list is empty the scan's notice stands in it. Under it the
+  servers' lock, Quick Refresh, Refresh All and the source switch: a
+  140x22 u capsule track (black at 0.6 under a `#CCDEFA` edge at 0.65) with
+  Internet and LAN on it, the chosen one white on a thumb in
+  `prey.radio.active` and the other in `prey.text.tab`. A press anywhere on
+  it, or Accept, takes the other source and scans it; the thumb glides
+  across in 140 ms (at once under reduced motion), the pointer or focus
+  brightens the track and focus adds the `prey.rail` outline. While the list is empty the scan's notice stands in it. Under it the
   Selected Server tab (Summary with the map's picture, Details with the
   address, map, game type, password and players, and Players with every
   name: the first half down the stock's leading box of four and the rest
@@ -2478,7 +2507,9 @@ Hide both hides full and empty servers, as the browser reads the setting,
 where the stock choice wrote the value that hides empty ones only; the
 filters apply as they change, so Apply Filters has no button; Create Server
 has Team Balance and the Bots tab, and dims the rows that do not apply; Data
-Rate offers Broadband; and Run Map Cycle Script is in Title Case (the stock
+Rate offers Broadband; Configure Server Rate offers today's upload speeds;
+the portraits page with arrows rather than numbered tabs; the source is a
+switch rather than two buttons; and Run Map Cycle Script is in Title Case (the stock
 `#str_41025` is not). The page names `guis/loading/loading` until the
 session fills a portrait: the stock windows named
 `guis/assets/menu/questionmark`, which no retail archive holds.
@@ -2605,9 +2636,8 @@ coordinates, so the retained document is the stock screen redrawn.
 
 - Controller prompts in the bottom title bar, and text that scales with the
   interface's text size without leaving its plates (section 12.3, rule 5).
-- The stock Audio page's sound-driver notice (the engine never raises it),
-  the Advanced 2 page's driver box, whose button opens a web page, and the
-  crosshair's picture beside its name.
+- The stock Audio page's sound-driver notice (the engine never raises it)
+  and the Advanced 2 page's driver box, whose button opens a web page.
 - The multiplayer scoreboard, spectate and chat overlays, which are HUD
   (section 10) rather than menus, and the HUD itself. The scoreboard's
   layouts for openPR06's 32 players are stock windows (section 10.6).
@@ -3268,6 +3298,19 @@ carries their summaries.
   (`def/consoles.def:497,534`), which are not in the archives.
 
 ## Appendix D. Change record
+
+### Version 1.33, 28 November 2026
+
+- Section 12.5, Options: picture choices. Crosshair shows its crosshair on
+  the row and unfolds as a grid of tiles, the stock page's picture beside
+  the name now built.
+- Section 12.5, MultiPrey: the portraits page with Previous and Next arrows
+  and page dots; Find Servers' source is a switch; Bots' count is Minimum
+  Players; Configure Server Rate offers today's upload speeds. The default
+  server name is "openPR06 Server". A page or side tab gathers its nodes in
+  a box-less layer, so a frame-sized group no longer takes the presses meant
+  for the rows under it (Data Rate, Auto Weapon Switch and the source took
+  no clicks).
 
 ### Version 1.32, 25 November 2026
 

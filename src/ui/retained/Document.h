@@ -206,6 +206,9 @@ struct ScrollSpec {
 struct ChoiceSpec {
 	std::string popup, viewport, content, valueText;
 	unsigned visibleRows = 8;
+	// openPR06: options a line in a tiled list (a picture choice). Above 1,
+	// Left and Right step one option and Up and Down a whole line.
+	unsigned columns = 1;
 	std::vector<ChoiceOption> options;
 	std::optional<ScrollSpec> scrollbar; // Local popup artwork; never a nested semantic control.
 	std::string placementBounds; // Optional canonical proper ancestor; empty retains window placement.

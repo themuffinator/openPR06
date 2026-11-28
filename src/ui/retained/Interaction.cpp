@@ -1092,9 +1092,12 @@ void Interaction::KeepHighlightVisible() {
 	}
 }
 void Interaction::PopupNavigate(MenuInput input) {
-	if (input != MenuInput::Up && input != MenuInput::Down && input != MenuInput::Home && input != MenuInput::End && input != MenuInput::PageUp && input != MenuInput::PageDown) return;
-	armed.clear(); armedOption.clear(); popupAcceptArm = false;
 	const auto& item = items.at(popup); const auto& spec = std::get<ChoiceSpec>(item.control.widget);
+	// openPR06: a tiled list (columns above 1) also takes Left and Right.
+	const bool sideways = spec.columns > 1 && (input == MenuInput::Left || input == MenuInput::Right);
+	if (input != MenuInput::Up && input != MenuInput::Down && input != MenuInput::Home && input != MenuInput::End && input != MenuInput::PageUp &&
+		input != MenuInput::PageDown && !sideways) return;
+	armed.clear(); armedOption.clear(); popupAcceptArm = false;
 	std::vector<size_t> eligible;
 	size_t current = 0;
 	for (size_t i = 0; i < spec.options.size(); ++i) if (OptionEligible(item,i)) {
@@ -1104,7 +1107,14 @@ void Interaction::PopupNavigate(MenuInput input) {
 	if (eligible.empty()) { highlight.clear(); return; }
 	if (input == MenuInput::Home) current = 0;
 	else if (input == MenuInput::End) current = eligible.size()-1;
-	else {
+	else if (spec.columns > 1 && (input == MenuInput::Up || input == MenuInput::Down || sideways)) {
+		// A line up stays put on the first line; a line down from above a
+		// short last line lands on its last option.
+		if (input == MenuInput::Left) current = current > 0 ? current-1 : 0;
+		else if (input == MenuInput::Right) current = std::min<size_t>(current+1,eligible.size()-1);
+		else if (input == MenuInput::Up) current = current >= spec.columns ? current-spec.columns : current;
+		else if (current/spec.columns < (eligible.size()-1)/spec.columns) current = std::min<size_t>(current+spec.columns,eligible.size()-1);
+	} else {
 		const size_t amount = input == MenuInput::PageUp || input == MenuInput::PageDown ? spec.visibleRows : 1;
 		if (input == MenuInput::Up || input == MenuInput::PageUp) current = current > amount ? current-amount : 0;
 		else current = std::min(current+amount,eligible.size()-1);

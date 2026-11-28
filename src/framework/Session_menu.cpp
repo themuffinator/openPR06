@@ -134,10 +134,6 @@ idCVar ui_retainedCaptureLoadFade( "ui_retainedCaptureLoadFade", "0", CVAR_GUI |
 // retained MultiPrey page (createLan, createDedicated).
 idCVar net_menulanserver( "net_menulanserver", "0", CVAR_GUI | CVAR_BOOL | CVAR_ARCHIVE, "Create Server's server type: 0 Internet, 1 LAN" );
 idCVar net_serverMenuDedicated( "net_serverMenuDedicated", "0", CVAR_GUI | CVAR_BOOL | CVAR_ARCHIVE, "Create Server starts a dedicated server" );
-// openPR06: Create Server's Bots. StartMenuServer hands it to the game's
-// g_artificialPlayerCount, which only a running server reads and the bot
-// commands rewrite, so the page keeps its own archived count.
-idCVar net_serverMenuBots( "net_serverMenuBots", "0", CVAR_GUI | CVAR_INTEGER | CVAR_ARCHIVE, "Create Server's bots: the artificial players a server the menu starts fills free player slots with", 0, 31 );
 
 static bool Session_RetainedScreensEnabled( void ) {
 #ifdef ID_DEDICATED
@@ -1755,17 +1751,15 @@ GetListenServerPlayerWarningLimit
 static int GetListenServerPlayerWarningLimit( const int serverRatePreset, const int maxClientRate ) {
 	switch ( serverRatePreset ) {
 		case 1:
-			// Low Upload
-			return 3;
+			// openPR06: 5 Mbit upload
+			return 8;
 		case 2:
-			// Balanced Upload
-			return 4;
+			// 10 Mbit upload
+			return 12;
 		case 3:
-			// High Upload
-			return 5;
 		case 4:
 		case 5:
-			// Fiber/Modern and LAN presets should not trigger the legacy 4-player listen warning.
+			// 25 Mbit, fiber and LAN: a listen server holds a full server.
 			return LISTEN_SERVER_MAX_PLAYERS;
 		default:
 			break;
@@ -6154,9 +6148,14 @@ bool idSessionLocal::StartMenuServer() {
 	// the window closes and the system console runs the server.
 	const int dedicated = cvarSystem->GetCVarBool( "net_serverMenuDedicated" ) ? 1 : 0;
 	if ( gui_configServerRate.GetInteger() > 0 ) {
-		// guess the best rate for upstream, number of internet clients
+		// guess the best rate for upstream, number of internet clients.
+		// openPR06: the presets are today's upload speeds (Configure Server
+		// Rate: 5, 10 and 25 Mbit, fiber, LAN), each a per-client cap and the
+		// players it carries at about 80% of the upload; the client's own
+		// request (net_clientMaxRate, 128000 by default) still bounds a
+		// client. LAN gives the modern default rather than the old 25600.
 		if ( gui_configServerRate.GetInteger() == 5 || cvarSystem->GetCVarBool( "net_LANServer" ) ) {
-			cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 25600 );
+			cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 128000 );
 		} else {
 			// internet players
 			int n_clients = cvarSystem->GetCVarInteger( "si_maxPlayers" );
@@ -6166,24 +6165,24 @@ bool idSessionLocal::StartMenuServer() {
 			int maxclients = 0;
 			switch ( gui_configServerRate.GetInteger() ) {
 				case 1:
-					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 12000 );
-					maxclients = 2;
+					// 5 Mbit: 16 clients at 256 kbit
+					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 32000 );
+					maxclients = 16;
 					break;
 				case 2:
-					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 16000 );
-					maxclients = 3;
+					// 10 Mbit: 16 clients at 512 kbit
+					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 64000 );
+					maxclients = 16;
 					break;
 				case 3:
-					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 24000 );
-					maxclients = 4;
-					break;
-				case 4:
-					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 32000 );
+					// 25 Mbit: a full server at 640 kbit
+					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 80000 );
 					maxclients = LISTEN_SERVER_MAX_PLAYERS;
 					break;
+				case 4:
 				default:
-					// unknown preset: fall back to modern defaults
-					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 32000 );
+					// fiber (50 Mbit and up), and an unknown preset: the modern default
+					cvarSystem->SetCVarInteger( "net_serverMaxClientRate", 128000 );
 					maxclients = LISTEN_SERVER_MAX_PLAYERS;
 					break;
 			}
@@ -6211,9 +6210,11 @@ bool idSessionLocal::StartMenuServer() {
 		}
 	}
 
-	// openPR06: the bots the page asked for; the game fills free player
-	// slots with them once the map runs (idGameLocal::ReconcileArtificialPlayers).
-	cvarSystem->SetCVarInteger( "g_artificialPlayerCount", net_serverMenuBots.GetInteger() );
+	// openPR06: the page's Minimum Players (bot_minPlayers) brings bots in;
+	// a fixed count left by an earlier server or the bot commands would add
+	// to them, so the server the menu starts begins with none
+	// (idGameLocal::ReconcileArtificialPlayers).
+	cvarSystem->SetCVarInteger( "g_artificialPlayerCount", 0 );
 
 	if ( dedicated ) {
 		cvarSystem->SetCVarInteger( "net_serverDedicated", 1 );
@@ -7815,7 +7816,7 @@ static const retainedCreateSetting_t RETAINED_CREATE_SETTINGS[] = {
 	{ "createWarmup",		"warmup",		"si_warmup",				0, 1,	true },
 	{ "createVoice",		"voice",		"si_voiceChat",				0, 1,	true },
 	{ "createBuying",		"buying",		"si_isBuyingEnabled",		0, 2,	false },	// Session_RetainedCreateValue
-	{ "createBots",			"bots",			"net_serverMenuBots",		0, 31,	false },	// openPR06: StartMenuServer passes it on
+	{ "createBots",			"bots",			"bot_minPlayers",			0, 32,	false },	// openPR06: Minimum Players, filled with bots
 	{ "createBotSkill",		"botskill",		"bot_skill",				1, 5,	false },
 	// openQ4's match rules, on the advanced dialog's MATCH and RULES tabs.
 	{ "createShuffle",		"shuffle",		"si_shuffle",				0, 1,	true },

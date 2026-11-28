@@ -109,10 +109,12 @@ def main() -> None:
         "if ( maxClientRate <= 12000 )",
         "if ( maxClientRate <= 16000 )",
         "if ( maxClientRate <= 24000 )",
-        'SetCVarInteger( "net_serverMaxClientRate", 12000 )',
-        'SetCVarInteger( "net_serverMaxClientRate", 16000 )',
-        'SetCVarInteger( "net_serverMaxClientRate", 24000 )',
+        # Configure Server Rate's presets are today's upload speeds (5, 10 and
+        # 25 Mbit, fiber, LAN; 28 November 2026), not the 2006 kbit ones.
         'SetCVarInteger( "net_serverMaxClientRate", 32000 )',
+        'SetCVarInteger( "net_serverMaxClientRate", 64000 )',
+        'SetCVarInteger( "net_serverMaxClientRate", 80000 )',
+        'SetCVarInteger( "net_serverMaxClientRate", 128000 )',
         "maxclients = LISTEN_SERVER_MAX_PLAYERS",
     )
     forbid(
@@ -124,6 +126,8 @@ def main() -> None:
         'SetCVarInteger( "net_serverMaxClientRate", 8000 )',
         'SetCVarInteger( "net_serverMaxClientRate", 9500 )',
         'SetCVarInteger( "net_serverMaxClientRate", 10500 )',
+        'SetCVarInteger( "net_serverMaxClientRate", 12000 )',
+        'SetCVarInteger( "net_serverMaxClientRate", 25600 )',
     )
 
     window_path = "src/ui/Window.h"

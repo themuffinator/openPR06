@@ -3409,7 +3409,8 @@ void idGameLocal::RebindArtificialPlayers( void ) {
 idGameLocal::ReconcileArtificialPlayers
 
 openPR06: a multiplayer server's artificial players, one added or removed
-each frame until they number g_artificialPlayerCount (at most the free
+each frame until they number g_artificialPlayerCount, or more where
+bot_minPlayers asks for more players than people are in (at most the free
 player slots), once a listen server's own player is in. It ran inside
 RunDebugInfo, which a GOLD build leaves at once without developer 1, so the
 count (Create Server's Bots) did nothing in ordinary play; it runs every
@@ -3434,8 +3435,6 @@ void idGameLocal::ReconcileArtificialPlayers( void ) {
 		int numExistingAP = 0;
 		int numPlayerSlots = 0;
 		const int maxClients = serverInfo.GetInt( "si_maxPlayers" );
-		const int desiredBots = idMath::ClampInt( 0, maxClients,
-			g_artificialPlayerCount.GetInteger() );
 
 		for (int i = 0; i < maxClients; i++) {
 			if ( clientConnectionPending[i] ) {
@@ -3451,6 +3450,13 @@ void idGameLocal::ReconcileArtificialPlayers( void ) {
 				}
 			}
 		}
+
+		// Minimum Players counts people, a connection still being made among
+		// them, so a bot leaves as a person arrives and returns once they go.
+		const int numPeople = numPlayerSlots - numExistingAP;
+		const int fillBots = idMath::ClampInt( 0, maxClients, bot_minPlayers.GetInteger() ) - numPeople;
+		const int desiredBots = idMath::ClampInt( 0, maxClients,
+			Max( g_artificialPlayerCount.GetInteger(), fillBots ) );
 
 		// Reconcile one slot per frame so joins, leaves and cvar edits cannot cause
 		// a burst of entity/snapshot churn in one server tick.

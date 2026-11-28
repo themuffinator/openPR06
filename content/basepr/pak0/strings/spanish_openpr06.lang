@@ -4,6 +4,7 @@
 
 {
 	"#str_04137"	"Soporte EAX activado."
+	"#str_20170"	"Sin cambios;Subida 5 Mbit;Subida 10 Mbit;Subida 25 Mbit;Fibra (50+ Mbit);LAN"
 	"#str_41502"	"Todas"
 	"#str_42861"	"Mostrando %d de %d servidores"
 	"#str_100625"	"Se recomienda el modo de servidor dedicado para servidores de Internet con mas de %d jugadores. ?Continuar en modo listen?"
@@ -222,7 +223,7 @@
 	"#str_122300"	"RDSI;DSL/Cable;T1/LAN;Banda ancha"
 	"#str_122301"	"Bots"
 	"#str_122302"	"Opciones de bots"
-	"#str_122303"	"Número de bots"
+	"#str_122303"	"Jugadores mínimos"
 	"#str_122304"	"Habilidad de los bots"
 	"#str_122305"	"Muy fácil;Fácil;Normal;Difícil;Muy difícil"
 	"#str_122306"	"Variación de habilidad"
@@ -232,7 +233,7 @@
 	"#str_122310"	"Personajes con nombre"
 	"#str_122311"	"Equilibrio de equipos"
 	"#str_122312"	"Ejecutar script de ciclo de mapas"
-	"#str_122313"	"Los bots entran al iniciar el servidor y ocupan las plazas libres, hasta el máximo de jugadores. Los personajes con nombre dan a cada bot su propio modelo, estilo y voz."
+	"#str_122313"	"Los bots mantienen el servidor en el mínimo de jugadores: salen cuando entran jugadores y vuelven cuando se van, hasta el máximo de jugadores. Los personajes con nombre dan a cada bot su propio modelo, estilo y voz."
 	"#str_122314"	"Profundidad de campo"
 	"#str_122315"	"Intensidad del desenfoque"
 	"#str_122316"	"Rueda de armas"

@@ -116,6 +116,7 @@ extern idCVar	g_showActiveEntities;
 extern idCVar	g_showEnemies;
 
 extern idCVar	g_artificialPlayerCount; //HUMANHEAD rww
+extern idCVar	bot_minPlayers;	// openPR06
 
 // Data-driven multiplayer bot personalities.
 extern idCVar	bot_skill;

@@ -4,6 +4,7 @@
 
 {
 	"#str_04137"	"Support EAX active."
+	"#str_20170"	"Aucun changement;Envoi 5 Mbit;Envoi 10 Mbit;Envoi 25 Mbit;Fibre (50+ Mbit);LAN"
 	"#str_41502"	"Toutes"
 	"#str_42861"	"%d serveurs affichés sur %d"
 	"#str_100625"	"Le mode serveur dedie est recommande pour les serveurs Internet de plus de %d joueurs. Continuer en mode listen ?"
@@ -222,7 +223,7 @@
 	"#str_122300"	"RNIS;DSL/Câble;T1/LAN;Haut débit"
 	"#str_122301"	"Bots"
 	"#str_122302"	"Options des bots"
-	"#str_122303"	"Nombre de bots"
+	"#str_122303"	"Joueurs minimum"
 	"#str_122304"	"Niveau des bots"
 	"#str_122305"	"Très facile;Facile;Normal;Difficile;Très difficile"
 	"#str_122306"	"Écart de niveau"
@@ -232,7 +233,7 @@
 	"#str_122310"	"Personnages nommés"
 	"#str_122311"	"Équilibrage des équipes"
 	"#str_122312"	"Exécuter le script de cycle des cartes"
-	"#str_122313"	"Les bots rejoignent la partie au démarrage du serveur et occupent les places libres, jusqu'au nombre maximum de joueurs. Les personnages nommés donnent à chaque bot son modèle, son style et sa voix."
+	"#str_122313"	"Les bots maintiennent le serveur au nombre minimum de joueurs : ils partent quand des joueurs arrivent et reviennent quand ils s'en vont, jusqu'au nombre maximum de joueurs. Les personnages nommés donnent à chaque bot son modèle, son style et sa voix."
 	"#str_122314"	"Profondeur de champ"
 	"#str_122315"	"Intensité du flou"
 	"#str_122316"	"Roue des armes"

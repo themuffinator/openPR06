@@ -4,6 +4,7 @@
 
 {
 	"#str_04137"	"EAX support enabled."
+	"#str_20170"	"No Change;5 Mbit Upload;10 Mbit Upload;25 Mbit Upload;Fiber (50+ Mbit);LAN"
 	"#str_41502"	"All"
 	"#str_42861"	"Showing %d out of %d servers"
 	"#str_100625"	"Dedicated server mode is recommended for Internet servers with more than %d players. Continue in listen mode?"
@@ -222,7 +223,7 @@
 	"#str_122300"	"ISDN;DSL/Cable;T1/LAN;Broadband"
 	"#str_122301"	"Bots"
 	"#str_122302"	"Bot Options"
-	"#str_122303"	"Number of Bots"
+	"#str_122303"	"Minimum Players"
 	"#str_122304"	"Bot Skill"
 	"#str_122305"	"Easiest;Easy;Normal;Hard;Hardest"
 	"#str_122306"	"Skill Spread"
@@ -232,7 +233,7 @@
 	"#str_122310"	"Named Characters"
 	"#str_122311"	"Team Balance"
 	"#str_122312"	"Run Map Cycle Script"
-	"#str_122313"	"Bots join when the server starts and fill free player slots, up to Max Players. Named characters give each bot its own model, style and voice."
+	"#str_122313"	"Bots keep the server up to Minimum Players, leaving as people join and coming back as they leave, up to Max Players. Named characters give each bot its own model, style and voice."
 	"#str_122314"	"Depth of Field"
 	"#str_122315"	"Blur Strength"
 	"#str_122316"	"Weapon Wheel"

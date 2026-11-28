@@ -113,7 +113,7 @@ idCVar gamedate(					"gamedate",					__DATE__,		CVAR_GAME | CVAR_ROM, "" );
 
 // server info
 //HUMANHEAD rww - changed defaults for si_name, si_map, si_maxPlayers
-idCVar si_name(						"si_name",					"Prey Server",	CVAR_GAME | CVAR_SERVERINFO | CVAR_ARCHIVE, "name of the server" );
+idCVar si_name(						"si_name",					"openPR06 Server",	CVAR_GAME | CVAR_SERVERINFO | CVAR_ARCHIVE, "name of the server" );	// openPR06: was "Prey Server" (Common_MigrateLegacyServerName)
 //HUMANHEAD rww - removed unsupported game types from description
 idCVar si_gameType(					"si_gameType",				si_gameTypeArgs[ 0 ],	CVAR_GAME | CVAR_SERVERINFO | CVAR_ARCHIVE, "game type - singleplayer, deathmatch, or Team DM", si_gameTypeArgs, idCmdSystem::ArgCompletion_String<si_gameTypeArgs> );
 idCVar si_map(						"si_map",					"dmshuttle2",CVAR_GAME | CVAR_SERVERINFO | CVAR_ARCHIVE, "map to be played next on server", idCmdSystem::ArgCompletion_MapName );
@@ -201,6 +201,11 @@ idCVar g_showActiveEntities(		"g_showActiveEntities",		"0",			CVAR_GAME | CVAR_B
 idCVar g_showEnemies(				"g_showEnemies",			"0",			CVAR_GAME | CVAR_BOOL, "draws boxes around monsters that have targeted the the player" );
 
 idCVar g_artificialPlayerCount(		"g_artificialPlayerCount",	"0",			CVAR_GAME | CVAR_INTEGER | CVAR_NOCHEAT, "spawns artificial players" ); //HUMANHEAD rww
+// openPR06: Create Server's Minimum Players. Bots keep a server up to this
+// many players, leaving as people join and coming back as they leave
+// (idGameLocal::ReconcileArtificialPlayers); g_artificialPlayerCount's fixed
+// bots count toward it.
+idCVar bot_minPlayers(					"bot_minPlayers",			"0",			CVAR_GAME | CVAR_INTEGER | CVAR_ARCHIVE, "bots fill the server until it holds this many players, leaving as people join", 0, MAX_CLIENTS );
 
 // A named character layers its play style and voice over the baseline skill
 // curve, so bots at the same difficulty can still feel distinct.

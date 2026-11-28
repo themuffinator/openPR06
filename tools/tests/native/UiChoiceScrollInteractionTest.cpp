@@ -9,11 +9,11 @@ static unsigned checks=0;
 #define CHECK(v) do{++checks;if(!(v)){std::fprintf(stderr,"FAIL line %d: %s\n",__LINE__,#v);std::exit(1);}}while(false)
 struct Fixture {
     DocumentModel model;Interaction input;std::string error;ScrollReadback read;
-    Fixture(bool bar=true) {
+    Fixture(bool bar=true,unsigned columns=1) {
         model.id="popup-scroll";model.root.id="root";Node choice;choice.id="choice";choice.control=Control{};
         auto& control=*choice.control;control.role=ControlRole::Choice;control.action="select";control.value=Expression{};control.value->type=0;
         for(auto state:{ControlState::Default,ControlState::Hover,ControlState::Focus,ControlState::Pressed,ControlState::Disabled})control.states[state]="paint";
-        ChoiceSpec spec;spec.visibleRows=2;if(bar)spec.scrollbar=ScrollSpec{"viewport","track","thumb",true,36,24};
+        ChoiceSpec spec;spec.visibleRows=2;spec.columns=columns;if(bar)spec.scrollbar=ScrollSpec{"viewport","track","thumb",true,36,24};
         for(unsigned i=0;i<6;++i){ChoiceOption option;option.id="row"+std::to_string(i);option.value=double(i);spec.options.push_back(option);}
         control.widget=spec;model.root.children.push_back(choice);Node modal;modal.id="modal";model.root.children.push_back(modal);
         input.Reset(model);CHECK(input.SetReadbacks({{"choice",{0.,false,{true,true,true,true,true,true}}}},error));
@@ -122,6 +122,25 @@ static void SemanticPopup() {
     f.input.SetBounds({});CHECK(!f.input.OpenChoicePopup("choice"));
     CHECK(f.input.TakeActions().empty()&&f.input.TakeScrollCommands().empty());
 }
+// openPR06: a tiled list (columns 4, six options: a line of four and a
+// short line of two). Left and Right step a tile, Up and Down a line; a
+// line up from the first line stays, a line down from above the short
+// line lands on its last tile, and a plain list ignores Left and Right.
+static void TiledPopup() {
+    Fixture f(true,4);CHECK(f.View().highlight=="row0");
+    f.Key(MenuInput::Right);CHECK(f.View().highlight=="row1");
+    f.Key(MenuInput::Up);CHECK(f.View().highlight=="row1");
+    f.Key(MenuInput::Down);CHECK(f.View().highlight=="row5");
+    f.Key(MenuInput::Down);CHECK(f.View().highlight=="row5");
+    f.Key(MenuInput::Left);CHECK(f.View().highlight=="row4");
+    f.Key(MenuInput::Up);CHECK(f.View().highlight=="row0");
+    f.Key(MenuInput::Left);CHECK(f.View().highlight=="row0");
+    for(int i=0;i<3;++i)f.Key(MenuInput::Right);
+    f.Key(MenuInput::Down);CHECK(f.View().highlight=="row5"&&f.View().popupOpen);
+    Fixture list(true);list.Key(MenuInput::Right);CHECK(list.View().highlight=="row0"&&list.View().popupOpen);
+    list.Key(MenuInput::Down);CHECK(list.View().highlight=="row1");
+    CHECK(f.input.TakeActions().empty());
+}
 static void ExactInvalidation() {
     for(bool bar:{false,true})for(int held=0;held<4;++held) {
         Fixture f(bar);if(bar)f.Layout();const auto before=f.View();
@@ -158,4 +177,4 @@ static void ExactInvalidation() {
     CHECK(f.input.TakeActions().empty());
 }
 
-int main(){ExactInvalidation();IdentityAndShape();CaptureAndHistory();SemanticPopup();std::printf("PASS %u checks; pure actual Choice Interaction and ScrollGeometry.\n",checks);return 0;}
+int main(){ExactInvalidation();IdentityAndShape();CaptureAndHistory();SemanticPopup();TiledPopup();std::printf("PASS %u checks; pure actual Choice Interaction and ScrollGeometry.\n",checks);return 0;}

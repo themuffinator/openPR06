@@ -1332,7 +1332,7 @@ private:
 			if (role == "button") Fields(control,p,{"role","action","event","input","focusable","label","enabled","states","navigation","detail","context","prompt","tooltip","extensions"});
 			else if (role == "toggle") Fields(control,p,{"role","action","label","enabled","states","navigation","value","mixed","parts","tooltip","extensions"});
 			else if (role == "slider") Fields(control,p,{"role","action","label","enabled","states","navigation","value","minimum","maximum","step","decimals","orientation","parts","tooltip","extensions"});
-			else if (role == "choice") Fields(control,p,{"role","action","label","enabled","states","navigation","value","context","parts","visibleRows","options","optionCount","scrollbar","placementBounds","tooltip","extensions"});
+			else if (role == "choice") Fields(control,p,{"role","action","label","enabled","states","navigation","value","context","parts","visibleRows","columns","options","optionCount","scrollbar","placementBounds","tooltip","extensions"});
 			else if (role == "number") Fields(control,p,{"role","action","label","enabled","states","navigation","value","minimum","maximum","exponent","integer","decimals","maxBytes","parts","tooltip","extensions"});
 			else if (role == "text") Fields(control,p,{"role","action","label","enabled","states","navigation","value","maxBytes","allowEmpty","masked","parts","tooltip","extensions"});
 			else if (role == "scrollbar") Fields(control,p,{"role","label","enabled","states","navigation","viewport","orientation","lineStep","minimumThumb","parts","extensions"});
@@ -1492,6 +1492,11 @@ private:
 						Require(control["visibleRows"].isUInt() && control["visibleRows"].asUInt() >= 1 && control["visibleRows"].asUInt() <= 32,
 							control["visibleRows"],p+"/visibleRows","Choice visible rows must be 1..32");
 						spec.visibleRows = control["visibleRows"].asUInt();
+					}
+					if (control.isMember("columns")) {
+						Require(control["columns"].isUInt() && control["columns"].asUInt() >= 1 && control["columns"].asUInt() <= 16,
+							control["columns"],p+"/columns","Choice columns must be 1..16");
+						spec.columns = control["columns"].asUInt();
 					}
 					Require(control["options"].isArray() && !control["options"].empty() && control["options"].size() <= 256,
 						control["options"],p+"/options","Choice requires 1..256 authored options");

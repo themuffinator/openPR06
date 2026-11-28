@@ -54,10 +54,14 @@ reconciles toward it one bot per frame, adding or removing as needed
 (`idGameLocal::ReconcileArtificialPlayers`, every frame; it ran in the debug
 pass, which a retail-configured build skips without `developer 1`; a listen
 server waits for the host's own player, whose slot a bot would otherwise
-take). MultiPrey's
-Create Server sets it from its Bots tab as the server starts (the menu's own
-archived `net_serverMenuBots`), beside `bot_skill`, `bot_skillVariance`,
-`bot_chat` and `bot_characters`. The
+take). `bot_minPlayers` (archived, 0 to 32) asks for more where people are
+few: the reconciler wants at least that many players less the people in
+(a connection still being made counts as one), so a bot leaves as a person
+arrives and comes back once they go; the larger of the two counts wins.
+MultiPrey's Create Server sets `bot_minPlayers` from its Bots tab (Minimum
+Players), beside `bot_skill`, `bot_skillVariance`, `bot_chat` and
+`bot_characters`, and clears `g_artificialPlayerCount` as the server starts,
+so a fixed count left from an earlier server does not add to it. The
 named commands below update that count after a manual change so the automatic
 reconciler does not immediately undo the command. It is explicitly non-cheat,
 so those count updates work on an ordinary multiplayer server without enabling

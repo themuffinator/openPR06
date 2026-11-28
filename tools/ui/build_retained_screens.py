@@ -241,6 +241,16 @@ def group(ident: str, props: dict, children=(), **extra) -> dict:
     node.update(extra)
     return node
 
+
+def layer(ident: str, children=(), **extra) -> dict:
+    """A group that only gathers its children (a tab's page, one of a
+    pager's pages), whose boxes stay in the frame's units. It has no box of
+    its own: the pointer reaches the topmost element under it, so a
+    frame-sized group drawn over a page's earlier controls would take every
+    press meant for them. Its children are hit and drawn as usual."""
+    return group(ident, absolute(0, 0, 0, 0), children, **extra)
+
+
 def vector(ident: str, props: dict, paths: list | None = None, *, symbol: str | None = None, **extra) -> dict:
     node = {"id": ident, "type": "vector", "properties": props}
     if symbol:
@@ -1727,6 +1737,12 @@ OPTION_SETTINGS = {
 # A stock choice whose options are written into the script rather than the
 # language tables takes a string of openPR06's instead.
 OPTION_CHOICES = {"r_screenfraction": "#str_122060"}
+# Choices shown as pictures (tile_list): each option's image, or None for
+# the off option, which draws a struck-through ring. The crosshairs are the
+# HUD's own art (guis/cursor.gui), drawn a little over their 32 u HUD size.
+OPTION_TILES = {"g_crosshair": [None] + [f"textures/interface/crosshairs/crosshair{n}" for n in range(1, 9)]}
+TILE_COLUMNS, TILE_H, TILE_ICON = 5, 44, 40   # a tiled list's columns, its tiles' height and their picture (u)
+TILE_WELL = rgb("#5A6E80", 0.55)               # a tile's backing: mid steel, so the dark crosshairs read as the light ones do
 # Rows the stock page dims by a condition: Shader Detail has no effect while
 # shader programs are off or the Vulkan backend is active (section 12.1).
 OPTION_ENABLED = {"r_shaderlevel": {"op": "!", "args": [{"op": "||", "args": [
@@ -2009,6 +2025,59 @@ def choice_list(ident: str, entries: list[tuple], box, column) -> tuple[dict, li
     return popup, options
 
 
+def off_glyph_d(cx: float, cy: float, r: float) -> str:
+    """The off option's picture: a ring struck through from corner to corner."""
+    k = r * 0.7071
+    return ellipse_d(cx, cy, r, r) + f"M{cx - k} {cy + k}L{cx + k} {cy - k}"
+
+
+def tile_list(ident: str, entries: list[tuple], images: list, box) -> tuple[dict, list[dict]]:
+    """A choice's list as tiles (a picture choice): the choice list's black
+    body and outline, its options as TILE_COLUMNS tiles a line that wrap,
+    each its picture on a TILE_WELL backing, centred. The option under the
+    pointer or the keys carries prey.list.selection and the current one is
+    outlined, as a list row is; the option's name stays its accessible
+    label, undrawn. Left and Right step a tile and Up and Down a line
+    (the control's columns, Interaction::PopupNavigate)."""
+    x, y, w = box
+    options, tiles = [], []
+    for index, (caption, value) in enumerate(entries):
+        option = f"{ident}-option-{index}"
+        whole = {**FULL, "display": keyword("none"), **PASSIVE}
+        source = images[index]
+        icon = {"position": keyword("absolute"), "left": length(50, "%"), "top": ul((TILE_H - TILE_ICON) / 2),
+                "width": ul(TILE_ICON), "height": ul(TILE_ICON), "margin-left": ul(-TILE_ICON / 2), **PASSIVE}
+        if source:
+            art = picture(f"{option}-picture", source, icon, fit="contain")
+        else:
+            art = vector(f"{option}-picture", icon, [svg("off", off_glyph_d(TILE_ICON / 2, TILE_ICON / 2, 8),
+                                                        stroke=stroke(solid(TEXT_VALUE), 1.4 * U, cap="round"))])
+        tiles.append(group(option, {"position": keyword("relative"), "display": keyword("block"),
+                                    "width": length(100 / TILE_COLUMNS, "%"), "height": ul(TILE_H), "flex-shrink": number(0)}, [
+            group(f"{option}-well", {"position": keyword("absolute"), "left": ul(2), "top": ul(2), "right": ul(2), "bottom": ul(2),
+                                     "background-color": colour(TILE_WELL), **PASSIVE}),
+            group(f"{option}-highlight", {**whole, "background-color": colour(LIST_SELECTION)}),
+            art,
+            group(f"{option}-selected", {**whole, "border-width": ul(1), "border-color": colour(LIST_OUTLINE),
+                                         "box-sizing": keyword("border-box")}),
+            *label(f"{option}-label", caption[0], (0, 0, TILE_ICON, OPTION_H), BODY, 0.30, TEXT_VALUE, centre=True,
+                   overflow=keyword("hidden"), opacity=number(0), **ELLIPSIS)]))
+        options.append({"id": option, "node": option, "label": caption[0], "value": value, "labelIndex": caption[1],
+                         "parts": {"label": f"{option}-label", "selected": f"{option}-selected", "highlight": f"{option}-highlight"}})
+    tall = -(-len(entries) // TILE_COLUMNS) * TILE_H
+    content = group(f"{ident}-content", {"position": keyword("absolute"), "left": length(0), "top": length(0), "width": length(100, "%"),
+                                         "display": keyword("flex"), "flex-direction": keyword("row"), "flex-wrap": keyword("wrap")}, tiles)
+    viewport = group(f"{ident}-viewport", {"position": keyword("relative"), "display": keyword("block"), "width": ul(w - 2),
+                                           "height": ul(tall), "margin-left": ul(1), "margin-top": ul(1)}, [content])
+    thumb = group(f"{ident}-scroll-thumb", {"position": keyword("absolute"), "left": length(0), "top": length(0),
+                                            "width": ul(2), "height": length(24), "background-color": colour(SCROLL_THUMB)})
+    scroll = group(f"{ident}-scroll-track", {**absolute(w - 3, 1, 2, tall)}, [thumb])
+    popup = group(f"{ident}-popup", {**absolute(x, y, w, tall + 2), "display": keyword("none"),
+                                     "background-color": colour([0, 0, 0, 0.96]), "border-width": ul(1),
+                                     "border-color": colour(SEPARATOR), "box-sizing": keyword("border-box")}, [viewport, scroll])
+    return popup, options
+
+
 def row_setting(doc: Document, row: dict) -> dict:
     """How a stock row's setting is read and changed. Most are settings the
     engine lets a page change directly (OPTION_SETTINGS), read back from the
@@ -2081,23 +2150,44 @@ def setting_row(doc: Document, ident: str, row: dict, origin) -> dict:
                 return int(number_value) if number_value == int(number_value) else number_value
             choices = OPTION_CHOICES.get(row["cvar"].lower(), row["choices"])
             entries = [((choices, index), typed(index)) for index in range(count)]
+        tiles = OPTION_TILES.get(row["cvar"].lower())
         # A row taller than the stock 25 u seats its value in the middle.
+        # A picture choice shows its current picture there instead, and its
+        # name only for the off option, which has none.
         value = label(f"{ident}-value", PLACEHOLDER, (cx, cy, cw, ch), BODY, row.get("value_scale", 0.33), TEXT_VALUE,
                       centre=ch > 30 or row.get("centre", False), align=row.get("value_align", "center"), overflow=keyword("hidden"),
-                      **ELLIPSIS)
-        # Names the session supplies (sound devices) can be long: their list
-        # gives them the row's width, where a stock list sits under the value.
-        named = any(isinstance(caption, dict) for caption, _ in entries)
-        popup, options = choice_list(ident, entries, (0, h, w), (8, w - 16) if named else (cx, cw))
+                      **ELLIPSIS, **({"opacity": number(1)} if tiles else {}))
+        if tiles:
+            current = {"state": setting["state"]}
+            off = {"op": "==", "args": [current, entries[0][1]]}
+            doc.bind(f"{ident}-value", "opacity", {"op": "select", "args": [off, 1, 0]})
+            # The picture on a tile's backing, centred in the value's place.
+            side, well = ch - 2, ch + 10
+            source = tiles[1]
+            for (_, option_value), image_path in reversed(list(zip(entries, tiles))[2:]):
+                source = {"op": "select", "args": [{"op": "==", "args": [current, option_value]}, image_path, source]}
+            doc.bind(f"{ident}-preview-picture", "image", source)
+            preview = group(f"{ident}-preview", {**absolute(cx + (cw - well) / 2, cy, well, ch), **PASSIVE}, [
+                box_fill(f"{ident}-preview-well", (0, 0, well, ch), TILE_WELL),
+                picture(f"{ident}-preview-picture", tiles[1], {**absolute((well - side) / 2, 1, side, side), **PASSIVE}, fit="contain")])
+            value.append(shown_when(doc, preview, {"op": "!", "args": [off]}))
+            popup, options = tile_list(ident, entries, tiles, (0, h, w))
+        else:
+            # Names the session supplies (sound devices) can be long: their list
+            # gives them the row's width, where a stock list sits under the value.
+            named = any(isinstance(caption, dict) for caption, _ in entries)
+            popup, options = choice_list(ident, entries, (0, h, w), (8, w - 16) if named else (cx, cw))
         children += [*value, popup]
         spec.update(role="choice", states=setting_states(doc, ident, f"{ident}-value"), options=options,
-                    visibleRows=min(len(options), OPTION_ROWS), placementBounds="page",
+                    visibleRows=len(options) if tiles else min(len(options), OPTION_ROWS), placementBounds="page",
                     parts={"popup": f"{ident}-popup", "viewport": f"{ident}-viewport", "content": f"{ident}-content",
                            "value": f"{ident}-value"},
                     scrollbar={"track": f"{ident}-scroll-track", "thumb": f"{ident}-scroll-thumb",
-                               "lineStep": round(OPTION_H * U, 3), "minimumThumb": 24})
+                               "lineStep": round((TILE_H if tiles else OPTION_H) * U, 3), "minimumThumb": 24})
         if "count" in setting:
             spec["optionCount"] = setting["count"]
+        if tiles:
+            spec["columns"] = TILE_COLUMNS
     else:
         low, high, step = (setting.get(key, row[key]) for key in ("low", "high", "step"))
         knob = 10 * U
@@ -2582,23 +2672,24 @@ OPT_PROMPT_SCALE = 0.27
 PROMPT_KEYS = {"accept": "#str_122212", "back": "#str_122213", "clear": "#str_122214"}
 
 
-def compact_row(row: dict, x: float, y: float, w: float) -> dict:
+def compact_row(row: dict, x: float, y: float, w: float, h: float = OPT_ROW_H) -> dict:
     """A tree row (retained_options_tree) as the row builders take it: its
     plate at x,y in the frame, its label at the leading edge, its value or
-    keys in the trailing part, every text centred on the row's height."""
+    keys in the trailing part, every text centred on the row's height `h`
+    (a picture choice's row is two slots tall)."""
     split = round(w * {"bind": 0.43, "choice": 0.57}.get(row["kind"], 0.53))
     out = dict(row)
-    out.update(rect=(x, y, w, OPT_ROW_H), label_rect=(8, 0, split - 12, OPT_ROW_H), label_ty=0, label_align="left",
+    out.update(rect=(x, y, w, h), label_rect=(8, 0, split - 12, h), label_ty=0, label_align="left",
                label_scale=OPT_SCALE, value_scale=OPT_SCALE, centre=True, section=row.get("section"))
     if row["kind"] == "bind":
-        out["control_rect"] = (split, 0, w - split - 10, OPT_ROW_H)
+        out["control_rect"] = (split, 0, w - split - 10, h)
     elif row["kind"] == "choice":
-        out["control_rect"] = (split, 2, w - split - 12, OPT_ROW_H - 4)
+        out["control_rect"] = (split, 2, w - split - 12, h - 4)
     elif row["kind"] == "slider":
-        out.update(control_rect=(split, 2, w - split - 44, OPT_ROW_H - 4), number_w=32, number_gap=5, number_scale=0.26)
+        out.update(control_rect=(split, 2, w - split - 44, h - 4), number_w=32, number_gap=5, number_scale=0.26)
     elif row["kind"] == "size":
         fw = (w - split - 24) / 2
-        out["fields"] = [{"cvar": field["cvar"], "rect": (split + offset, 2, fw, OPT_ROW_H - 4)}
+        out["fields"] = [{"cvar": field["cvar"], "rect": (split + offset, 2, fw, h - 4)}
                          for field, offset in zip(row["fields"], (0, fw + 12))]
     return out
 
@@ -2658,10 +2749,13 @@ def options_page(doc: Document, page: dict, tab: int, side: int, x0: float, widt
                 targets.append((slot, ids, True))
                 slot += 1
                 continue
-            node, target = page_row(doc, compact_row(item, cx, y, col_w), (0, 0), tag)
+            # A picture choice takes two slots, so its picture reads at the
+            # size the HUD draws it.
+            slots = 2 if (item.get("cvar") or "").lower() in OPTION_TILES else 1
+            node, target = page_row(doc, compact_row(item, cx, y, col_w, slots * OPT_PITCH - (OPT_PITCH - OPT_ROW_H)), (0, 0), tag)
             nodes.append(node)
             targets.append((slot, [target], False))
-            slot += 1
+            slot += slots
         if slot > (OPT_SLOTS - (1 if apply and c == 1 else 0)):
             raise SystemExit(f"settings.rui: page {page['name']} column {c} holds {slot} slots, more than fit")
         columns.append(targets)
@@ -2888,15 +2982,14 @@ def options_document() -> dict:
             # The divider beside this tab shows while another is the active one.
             book.append(shown_when(doc, line(f"book{index}-divider{number_of}", (inner_x, side_box[1], 1, sh)),
                                    {"op": "!", "args": [picked]}))
-            book.append(shown_when(doc, group(f"page{index}-{number_of}", {**absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3])},
-                                              page_nodes), picked))
+            book.append(shown_when(doc, layer(f"page{index}-{number_of}", page_nodes), picked))
         book += side_tabs
         if index == AUDIO_TAB:
             # The EAX mark, while EAX is in use, under the OpenAL rows.
             book.append(shown_when(doc, picture("audio-eax-mark", "guis/assets/menu/eax", {
                 **absolute(bx + bw - OPT_PAD - 64, by + bh - 34, 64, 28), **PASSIVE}),
                 {"op": "!=", "args": [{"state": "eax"}, 0]}))
-        books.append(shown_when(doc, group(f"book{index}", {**absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3])}, book), chosen))
+        books.append(shown_when(doc, layer(f"book{index}", book), chosen))
 
     def focus_side(index: int) -> list:
         """Focus the first control of the side tab top tab `index` shows."""
@@ -3204,15 +3297,15 @@ def mp_settings_page(doc: Document) -> tuple[list[dict], str]:
               portrait, picture_frame("mp-model-frame", (mx + 9, my + 34, 130, 130)),
               *bound(doc, label("mp-model-name", PLACEHOLDER, (mx, my + 165, 148, 20), BODY, 0.4, MP_TEXT_VALUE, shadow=True, ty=-5),
                      "mp_currentmodelname")]
-    # The portraits, fifteen to a numbered page.
+    # The portraits, fifteen to a page, which the arrows either side of the
+    # grid turn; the dots over it say which page shows.
     gx, gy, gw, gh = mx + 200, my + 10, 318, 210
     doc.state["mp.pick"] = {"type": "number", "initial": -1}
     doc.state["mp.models.page"] = {"type": "number", "initial": 0}
     doc.session("mpPreyModel")
     pages_box = (gx, gy + 20, gw, gh - 20)
-    furniture, tabs = mp_top_tabs(doc, "mp_models", pages_box, (gx + 120, gy, gw - 120, 20), ["#str_21001", "#str_21002"], "mp.models.page",
-                                  [[], []])
-    nodes += [box_fill("mp-models-wash", pages_box, PAGE_WASH), *furniture]
+    nodes += [box_fill("mp-models-wash", pages_box, PAGE_WASH, border=rgb("#BDCFE0", 0.55)),
+              *model_pager(doc, pages_box, MP_MODELS // MP_MODELS_PAGE, "mp.models.page")]
     click = doc.session("soundClick")
     for page in range(MP_MODELS // MP_MODELS_PAGE):
         cells = []
@@ -3238,11 +3331,82 @@ def mp_settings_page(doc: Document) -> tuple[list[dict], str]:
             cell = group(ident, absolute(*box), [image_node, veil, current, rim],
                          control=control(PLACEHOLDER, ids, event=f"{ident}Pick"))
             cells.append(shown_when(doc, cell, {"op": "!=", "args": [{"state": f"mp_modelportrait{index}"}, ""]}))
-        nodes.append(shown_when(doc, group(f"mp-models-page{page}", {**absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3])}, cells),
+        nodes.append(shown_when(doc, layer(f"mp-models-page{page}", cells),
                                 {"op": "==", "args": [{"state": "mp.models.page"}, page]}))
     doc.state["cv.ui_modelNum"] = {"type": "string", "initial": "", "cvar": "ui_modelNum"}
-    nodes += tabs
     return nodes, "mp_name-field"
+
+
+PAGER_W, PAGER_H, PAGER_GAP = 22, 64, 8       # u: an arrow beside a paged grid, and its gap from the grid
+PAGER_DOT, PAGER_DOT_PITCH = 3.2, 12          # u: a page dot's radius and the dots' spacing
+
+
+def pager_arrow(doc: Document, ident: str, box, forward: bool, event: str, enabled, key: str) -> dict:
+    """An arrow that turns a paged grid (section 12.5): a slim capsule plate
+    graded as a button's, its chevron in prey.text.button. The pointer or
+    focus brightens the plate and turns the chevron white, focus adds the
+    prey.rail outline, and at the first or last page the arrow is drawn at
+    0.30 and takes no input."""
+    x, y, w, h = box
+    r, k = w / 2, w / 2 * 0.5523      # the ends' quarter arcs as cubics (the path model has no arcs)
+    d = (f"M0 {r}C0 {r - k} {r - k} 0 {r} 0C{r + k} 0 {w} {r - k} {w} {r}V{h - r}"
+         f"C{w} {h - r + k} {r + k} {h} {r} {h}C{r - k} {h} 0 {h - r + k} 0 {h - r}Z")
+    tip, back, reach = (w * 0.64, w * 0.38, 7) if forward else (w * 0.36, w * 0.62, 7)
+    chevron = f"M{back} {h / 2 - reach}L{tip} {h / 2}L{back} {h / 2 + reach}"
+    size = {**absolute(0, 0, w, h), **PASSIVE}
+    edge = stroke(solid(rgb(PLATE_BUTTON)), 1 * U, join="round")
+    paint = linear([0, 0], [0, h * U], [(0, rgb(PLATE_BUTTON, 0.55)), (1, rgb(PLATE_BUTTON, 0.12))])
+    parts = [
+        vector(f"{ident}-plate", {**size, "opacity": number(1)}, [svg("plate", d, fill=paint, stroke=edge)]),
+        vector(f"{ident}-hot", {**size, "opacity": number(0)}, [svg("plate", d, fill=solid(rgb(PLATE_BUTTON, 0.45)), stroke=edge)]),
+        vector(f"{ident}-rim", {**size, "opacity": number(0)}, [svg("rim", d, stroke=stroke(solid(RAIL), 1.5 * U, join="round"))]),
+        vector(f"{ident}-chevron", {**size, "opacity": number(1)}, [
+            svg("chevron", chevron, stroke=stroke(solid(TEXT_BUTTON), 2 * U, join="round", cap="round"))]),
+        vector(f"{ident}-chevron-hot", {**size, "opacity": number(0)}, [
+            svg("chevron", chevron, stroke=stroke(solid(TEXT_HOVER), 2 * U, join="round", cap="round"))]),
+    ]
+
+    def lit(plate_on: float, hot_on: float, rim_on: float, white: float, whole: float) -> list:
+        return [(f"{ident}-plate", "opacity", number(plate_on)), (f"{ident}-hot", "opacity", number(hot_on)),
+                (f"{ident}-rim", "opacity", number(rim_on)), (f"{ident}-chevron", "opacity", number(1 - white)),
+                (f"{ident}-chevron-hot", "opacity", number(white)), (f"{ident}-face", "opacity", number(whole))]
+    ids = doc.states(ident, {"default": lit(1, 0, 0, 0, 1), "hover": lit(0, 1, 0, 1, 1), "focus": lit(0, 1, 1, 1, 1),
+                             "pressed": lit(0, 1, 1, 1, 1), "disabled": lit(1, 0, 0, 0, 0.3)}, enter=1, leave=1)
+    doc.bind(ident, "enabled", enabled)
+    face = group(f"{ident}-face", {**size, "opacity": number(1)}, parts)
+    return group(ident, absolute(x, y, w, h), [face], control=control(key, ids, event=event))
+
+
+def model_pager(doc: Document, box, pages: int, state: str) -> list[dict]:
+    """A paged grid's turning: Previous and Next arrows centred on the grid's
+    leading and trailing edges, and a dot for each page over it, the shown
+    page's filled in prey.rail and the others outlined. Turning flips the page
+    as a tab does (its sound); an arrow that reaches the first or last page
+    hands the focus to the other one."""
+    x, y, w, h = box
+    page = {"state": state}
+    ay = y + (h - PAGER_H) / 2
+    nodes = []
+    for forward, ident, key in ((False, "mp_models_prev", "#str_20372"), (True, "mp_models_next", "#str_20373")):
+        step = {"op": "+" if forward else "-", "args": [page, 1]}
+        end = pages - 1 if forward else 0
+        other = "mp_models_prev" if forward else "mp_models_next"
+        doc.events[f"{ident}Pick"] = [{"op": "action", "action": doc.session("soundTabFlip")}, {"op": "setState", "values": {state: step}},
+                                      {"op": "if", "condition": {"op": "==", "args": [page, end]},
+                                       "then": [{"op": "focus", "control": other}]}]
+        enabled = {"op": "<" if forward else ">", "args": [page, end]}
+        ax = x + w + PAGER_GAP if forward else x - PAGER_GAP - PAGER_W
+        nodes.append(pager_arrow(doc, ident, (ax, ay, PAGER_W, PAGER_H), forward, f"{ident}Pick", enabled, key))
+    first = x + w / 2 - (pages - 1) * PAGER_DOT_PITCH / 2
+    for index in range(pages):
+        cx, cy = first + index * PAGER_DOT_PITCH, y - 9
+        box_d = (cx - PAGER_DOT - 1, cy - PAGER_DOT - 1, 2 * PAGER_DOT + 2, 2 * PAGER_DOT + 2)
+        ring = ellipse_d(PAGER_DOT + 1, PAGER_DOT + 1, PAGER_DOT, PAGER_DOT)
+        nodes.append(vector(f"mp-models-dot{index}", {**absolute(*box_d), **PASSIVE}, [
+            svg("ring", ring, stroke=stroke(solid(rgb("#B3C6E2", 0.7)), 1 * U))]))
+        nodes.append(shown_when(doc, vector(f"mp-models-dot{index}-on", {**absolute(*box_d), **PASSIVE}, [
+            svg("dot", ring, fill=solid(RAIL))]), {"op": "==", "args": [page, index]}))
+    return nodes
 
 
 def mp_list_row(doc: Document, ident: str, width: float, height: float, cells: list[tuple], selected, event: str,
@@ -3368,13 +3532,13 @@ def mp_create_page(doc: Document) -> tuple[list[dict], str]:
                                         (270, 0, 140, 24), spec[3], spec[4], spec[5], masked=spec[6], enabled=enabled))
     advanced.append(button(doc, "create_go2", "#str_20143", create_box, event="createRequested", scale=0.35))
 
-    # Bots (openPR06): how many artificial players the server starts with
-    # (net_serverMenuBots, which StartMenuServer hands to the game's
-    # g_artificialPlayerCount) and how they play (docs/dev/mp-bots.md). The
-    # rows after the count dim while there are none.
+    # Bots (openPR06): Minimum Players, the players bots keep the server up
+    # to, leaving as people join and returning as they leave (bot_minPlayers,
+    # idGameLocal::ReconcileArtificialPlayers), and how they play
+    # (docs/dev/mp-bots.md). The rows after it dim while it is 0.
     bots = [*header_bar("create-bots-head", (ix + 10, iy + 15, 420, 28), "#str_122302"),
             mp_number_row(doc, "create_bots", (ax, ay + 25, 420, 24), "#str_122303", (358, 0, 42, 24), "create.bots", "createBots",
-                          0, 31)]
+                          0, 32)]
     for at, (field, key, cvar, options, values) in enumerate((
             ("botskill", "#str_122304", "create.botskill", "#str_122305", ["1", "2", "3", "4", "5"]),
             ("botspread", "#str_122306", "bot_skillVariance", "#str_122307", ["0", "1", "2"]),
@@ -3386,11 +3550,11 @@ def mp_create_page(doc: Document) -> tuple[list[dict], str]:
                       label("create-bots-note-text", "#str_122313", (0, 0, 400, 70), BODY, 0.26, rgb("#BFD1FF", 0.72), align="left",
                             wrap=True, shadow=True)))
     bots.append(button(doc, "create_go3", "#str_20143", create_box, event="createRequested", scale=0.35))
-    nodes.append(shown_when(doc, group("create-normal", absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3]), normal),
+    nodes.append(shown_when(doc, layer("create-normal", normal),
                             {"op": "==", "args": [{"state": "create.side"}, 0]}))
-    nodes.append(shown_when(doc, group("create-advanced", absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3]), advanced),
+    nodes.append(shown_when(doc, layer("create-advanced", advanced),
                             {"op": "==", "args": [{"state": "create.side"}, 1]}))
-    nodes.append(shown_when(doc, group("create-bots", absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3]), bots),
+    nodes.append(shown_when(doc, layer("create-bots", bots),
                             {"op": "==", "args": [{"state": "create.side"}, 2]}))
     doc.events["create_side0Pick"].append({"op": "focus", "control": "create_name-field"})
     doc.events["create_side1Pick"].append({"op": "focus", "control": "create_usepass"})
@@ -3410,6 +3574,75 @@ MP_FIND_COLUMNS = (   # header rect, key, sort verb, the row's cell (state field
     ((458, 7, 106, 25), "#str_20176", "joinSortMap", ("map", 454, 88, "left")),
 )
 LOCK_D = "M3 6V4.2C3 2.4 4.2 1.2 6 1.2C7.8 1.2 9 2.4 9 4.2V6M1.8 6H10.2V11.4H1.8Z"   # the stock lock icon, traced
+SWITCH_GLIDE_MS = 140                        # the switch's thumb crossing to the other side
+
+
+def capsule_d(x: float, y: float, w: float, h: float) -> str:
+    """A capsule: a box whose ends are half circles, as quarter-arc cubics."""
+    r = h / 2
+    k = r * 0.5523
+    return (f"M{x + r} {y}H{x + w - r}C{x + w - r + k} {y} {x + w} {y + r - k} {x + w} {y + r}"
+            f"C{x + w} {y + r + k} {x + w - r + k} {y + h} {x + w - r} {y + h}H{x + r}"
+            f"C{x + r - k} {y + h} {x} {y + r + k} {x} {y + r}C{x} {y + r - k} {x + r - k} {y} {x + r} {y}Z")
+
+
+def two_way_switch(doc: Document, ident: str, box, key: str, sides: tuple, state: str, verbs: tuple) -> dict:
+    """A switch between two choices (section 12.5): a capsule track in the
+    stock radio segments' border colour, both choices' names on it, and a
+    thumb in prey.radio.active behind the chosen one, whose name is white
+    while the other's stays prey.text.tab. A press anywhere on it, or Accept,
+    takes the other choice: the thumb glides across and the page asks the
+    session (`verbs`, the first for false). The pointer or focus brightens
+    the track and focus adds the prey.rail outline. `state` is the Boolean
+    the session publishes; the page writes it at once, so the thumb never
+    waits on the session."""
+    x, y, w, h = box
+    half = w / 2
+    on = {"state": state}
+    track_d, thumb_d = capsule_d(0.5, 0.5, w - 1, h - 1), capsule_d(2, 2, half - 4, h - 4)
+    size = {**absolute(0, 0, w, h), **PASSIVE}
+    border = stroke(solid(rgb("#CCDEFA", 0.65)), 1 * U, join="round")
+    # The thumb: a holder the state places at once, and inside it the glide,
+    # which a timeline carries from the side it left (separate nodes: a
+    # binding and a timeline may not own one property).
+    holder = group(f"{ident}-thumb", {**absolute(0, 0, half, h), "transform": transform(), **PASSIVE}, [
+        group(f"{ident}-glide", {**absolute(0, 0, half, h), "transform": transform(), **PASSIVE}, [
+            vector(f"{ident}-thumb-plate", size | absolute(0, 0, half, h), [
+                svg("thumb", thumb_d, fill=linear([0, 0], [0, h * U], [(0, rgb("#99ABC7", 0.85)), (1, rgb("#99ABC7", 0.6))]),
+                    stroke=stroke(solid(rgb("#CCDEFA", 0.8)), 1 * U, join="round"))])])])
+    doc.bind(f"{ident}-thumb", "transform", [{"op": "select", "args": [on, round(half * U, 3), 0]}, 0, 1, 1, 0])
+    # A play takes its first key from the value it finds (Motion::Play), so
+    # the glide jumps to the side it left a millisecond in.
+    for name, start in ((f"{ident}GlideOn", -half), (f"{ident}GlideOff", half)):
+        doc.timeline(name, SWITCH_GLIDE_MS, [track(f"{ident}-glide", "transform", [
+            (0, transform(0)), (1, transform(start), EASE_IN_OUT), (SWITCH_GLIDE_MS, transform(0))])])
+    names = []
+    for index, side_key in enumerate(sides):
+        chosen = on if index else {"op": "!", "args": [on]}
+        made = label(f"{ident}-side{index}", side_key, (index * half, 0, half, h), BODY, 0.28, TAB_TEXT, shadow=True, ty=-1)
+        doc.bind(made[-1]["id"], "color", [{"op": "select", "args": [chosen, bright, dim]}
+                                           for bright, dim in zip(TEXT_HOVER, TAB_TEXT)])
+        names += made
+    parts = [
+        vector(f"{ident}-track", dict(size), [svg("track", track_d, fill=solid([0, 0, 0, 0.6]), stroke=border)]),
+        vector(f"{ident}-hot", {**size, "opacity": number(0)}, [svg("track", track_d, fill=solid(rgb("#A6BAD4", 0.14)))]),
+        holder,
+        *names,
+        vector(f"{ident}-rim", {**size, "opacity": number(0)}, [svg("rim", track_d, stroke=stroke(solid(RAIL), 1.5 * U, join="round"))]),
+    ]
+
+    def lit(hot_on: float, rim_on: float) -> list:
+        return [(f"{ident}-hot", "opacity", number(hot_on)), (f"{ident}-rim", "opacity", number(rim_on))]
+    ids = doc.states(ident, {"default": lit(0, 0), "hover": lit(1, 0), "focus": lit(1, 1), "pressed": lit(1, 1),
+                             "disabled": lit(0, 0)}, enter=1, leave=1)
+    click = doc.session("soundClick")
+
+    def take(value: bool) -> list:
+        return [{"op": "action", "action": click}, {"op": "setState", "values": {state: value}},
+                {"op": "playTimeline", "timeline": f"{ident}Glide{'On' if value else 'Off'}"},
+                {"op": "action", "action": doc.session(verbs[1 if value else 0])}]
+    doc.events[f"{ident}Toggle"] = [{"op": "if", "condition": on, "then": take(False), "else": take(True)}]
+    return group(ident, absolute(x, y, w, h), parts, control=control(key, ids, event=f"{ident}Toggle"))
 
 
 def mp_find_page(doc: Document) -> tuple[list[dict], str]:
@@ -3498,20 +3731,8 @@ def mp_find_page(doc: Document) -> tuple[list[dict], str]:
     nodes.append(button(doc, "find_refreshall", "#str_20178", place((135, 209, 120, 24)), event="joinNewListPick", scale=0.3))
     nodes += label("find-source-title", "#str_20179", place((255, 209, 145, 24)), BODY, 0.28, TEXT_LABEL, align="right", shadow=True,
                    ty=-2)
-    for index, (key, verb, on) in enumerate((("#str_20180", "joinSourceInternet", False), ("#str_20181", "joinSourceLan", True))):
-        ident, box = f"find_source{index}", place((405 + 69 * index, 210, 70, 20))
-        chosen = {"op": "==", "args": [{"state": "join.lan"}, on]}
-        doc.events[f"{ident}Pick"] = [{"op": "action", "action": click}, {"op": "action", "action": doc.session(verb)}]
-        band = shown_when(doc, box_fill(f"{ident}-on", (0, 0, 70, 20), rgb("#A6BAD4", 0.55)), chosen)
-        rim = box_fill(f"{ident}-rim", (0, 0, 70, 20), [0, 0, 0, 0], border=RAIL, opacity=number(0))
-        text_nodes = label(f"{ident}-label", key, (0, 0, 70, 20), BODY, 0.28, TEXT_BUTTON, shadow=True, ty=-2)
-
-        def lit(tint: list[float], rim_on: float, ident=ident) -> list:
-            return [(f"{ident}-label", "color", colour(tint)), (f"{ident}-rim", "opacity", number(rim_on))]
-        ids = doc.states(ident, {"default": lit(TEXT_BUTTON, 0), "hover": lit(TEXT_HOVER, 0), "focus": lit(TEXT_HOVER, 1),
-                                 "pressed": lit(TEXT_HOVER, 1), "disabled": lit(TEXT_BUTTON_OFF, 0)}, enter=1, leave=1)
-        nodes.append(group(ident, absolute(*box), [box_fill(f"{ident}-box", (0, 0, 70, 20), [0, 0, 0, 0.6], border=SEPARATOR),
-                                                   band, rim, *text_nodes], control=control(key, ids, event=f"{ident}Pick")))
+    nodes.append(two_way_switch(doc, "find_source", place((406, 210, 140, 22)), "#str_20179", ("#str_20180", "#str_20181"),
+                                "join.lan", ("joinSourceInternet", "joinSourceLan")))
 
     # The tabs below: Selected Server, Filters and IP Connect.
     bx, by = px + 9, py + 235
@@ -3587,7 +3808,7 @@ def mp_find_page(doc: Document) -> tuple[list[dict], str]:
     players += label("find-players-title", "#str_20191", (ox + 310, oy + 15, 130, 25), BODY, 0.3, TEXT_LABEL, shadow=True)
     players += info("find-players-limit", "join.sel.players", (340, 40, 70, 20), 0.3)
     players.append(join_button("find_join2", (ox, oy)))
-    side_pages = [shown_when(doc, group(f"find-side{index}", {**absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3])}, page),
+    side_pages = [shown_when(doc, layer(f"find-side{index}", page),
                              {"op": "==", "args": [{"state": "find.side"}, index]})
                   for index, page in enumerate((summary, details, players))]
     selected_tab = [*side_furniture, *side_pages, *side_tabs]
@@ -3633,7 +3854,7 @@ def mp_find_page(doc: Document) -> tuple[list[dict], str]:
                enabled={"op": "||", "args": [{"op": "!=", "args": [{"state": "join.address"}, ""]}, {"state": "ui.numberDraftsPending"}]}),
     ]
     for index, page in enumerate((selected_tab, filters, connect_tab)):
-        nodes.append(shown_when(doc, group(f"find-lower{index}", {**absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3])}, page),
+        nodes.append(shown_when(doc, layer(f"find-lower{index}", page),
                                 {"op": "==", "args": [{"state": "find.tab"}, index]}))
     doc.events["find_lower_tab0Pick"].append({"op": "focus", "control": "find_side0"})
     doc.events["find_lower_tab1Pick"].append({"op": "focus", "control": "opt_gui_filter_gametype"})
@@ -3656,7 +3877,7 @@ def multiprey_document() -> dict:
     furniture, tabs = mp_top_tabs(doc, "book", MP_BOOK, (MP_BOOK[0], 35, MP_BOOK[2], 20), [key for key, _ in MP_TABS], "tab.top",
                                   [[{"op": "focus", "control": firsts[0]}], [{"op": "focus", "control": firsts[1]}],
                                    [{"op": "action", "action": doc.session("joinNewList")}, {"op": "focus", "control": firsts[2]}]])
-    books = [shown_when(doc, group(f"book{index}", {**absolute(0, 0, FULL_FRAME[2], FULL_FRAME[3])}, nodes),
+    books = [shown_when(doc, layer(f"book{index}", nodes),
                         {"op": "==", "args": [{"state": "tab.top"}, index]})
              for index, nodes in enumerate((settings_nodes, create_nodes, find_nodes))]
     contents = [*mp_page_shade("book", MP_BOOK), *furniture, *books, *tabs]
@@ -4613,6 +4834,9 @@ def walk(node: dict):
         yield from walk(child)
 
 
+walk_nodes = walk     # check_ids shadows walk with its own
+
+
 # -------------------------------------------------------------------- output
 
 DOCUMENTS = {
@@ -4656,11 +4880,31 @@ def check_ids(name: str, document: dict) -> None:
     base value on its node, which the loader requires."""
     seen: dict[str, dict] = {}
 
+    def spans_frame(props: dict) -> bool:
+        size = [props.get(key) for key in ("width", "height")]
+        return all(isinstance(value, dict) and value.get("unit") == "dp" for value in size) and \
+            size[0]["value"] >= FULL_FRAME[2] * U - 0.01 and size[1]["value"] >= FULL_FRAME[3] * U - 0.01
+
+    def has_control(node: dict) -> bool:
+        return any("control" in inner for inner in walk_nodes(node))
+
+    def blocker(node: dict) -> bool:
+        props = node["properties"]
+        return (node["type"] == "group" and "control" not in node and "background-color" not in props and
+                props.get("pointer-events", {}).get("value") != "none" and spans_frame(props))
+
     def walk(node: dict) -> None:
         if node["id"] in seen:
             raise SystemExit(f"{name}: duplicate node id {node['id']!r}")
         seen[node["id"]] = node
-        for child in node.get("children", ()):
+        children = node.get("children", ())
+        # A frame-sized group that is neither a control, a backing (a scrim
+        # or wash) nor passive takes every press over the controls its
+        # earlier siblings hold (the pointer hits the topmost element), even
+        # where it draws nothing: gather such a page in a layer() instead.
+        for index, child in enumerate(children):
+            if blocker(child) and any(has_control(earlier) for earlier in children[:index]):
+                raise SystemExit(f"{name}: {child['id']!r} spans the frame over earlier controls; make it a layer()")
             walk(child)
     walk(document["root"])
     for binding in document.get("bindings", ()):

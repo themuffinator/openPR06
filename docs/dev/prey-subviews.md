@@ -44,6 +44,15 @@ Rules that follow from retail and are easy to break:
   looks onto open sky gets a skybox view of its own, nested inside it.
 - **The sky goes first.** It covers the whole view, so drawing it after a portal
   would wipe that portal out.
+- **A direct portal survives a triangle that faces away.** The precise cull
+  (`R_PreciseCullSurface`, retail `sub_4efac0`) rejects a mirror or render-map
+  surface as soon as one triangle faces away from the viewer, as Doom 3 does.
+  On a `directportal` material retail skips that triangle and carries on, and
+  the surface is culled only when no triangle is left. Prey's portal models
+  need it: `portal64x72.ase` and its siblings are a tray 16 units deep whose
+  side walls slope inwards, and the glow portals' `portal_innerwarp` is a dish
+  20 units deep. Culled the Doom 3 way, a 64-unit portal drew black from 32
+  units off its axis plus half the viewer's distance in front of it.
 
 Two deliberate differences from retail:
 
@@ -181,6 +190,7 @@ and SSAO paths are where the two backends differ. Use `noclip` and
 | Sky inside a portal, sky around it | `game/lotab` | `setviewpos 400 800 760 90`, then the same `spawn` with `origin "400 880 760"` |
 | Mirror swap and fade | `game/feedingtowera` | Let the slab ride play from the start (player bound, about 60 s at `com_maxfps 60`). `MirrorFlash` swaps the direct mirror for the fading render-map mirror and reveals the hunters behind it. Watch `com_speeds 1` for a long frame |
 | Portal clip plane | `game/shuttlea` | The glow portal above, from 60 to 500 units back and at 25 and 45 degrees. Compare with `r_skipSubviewClip 1`: unclipped, a body behind the exit draws across the view |
+| Portal seen from the side | `game/feedingtowerb` | `setviewpos 1431.6 -10606.5 76.3 -120.7` (50 degrees off `mainroom_boxportal`) and, with `noclip`, `setviewpos 720.2 188.2 783 -135` (45 degrees off `object_glowportal_2`). Both show the far room, not black |
 | Game portal PVS link | `game/feedingtowerb` | `setviewpos 10844 -5184 3412 0` on the mini asteroid, then `script "map_feedingtowerb::HugeHunterRun();"`. The giant hunter walks into the sky view, uses the console and opens a portal |
 
 Do not launch these runs with `s_noSound 1`. Several map scripts wait on a
@@ -188,7 +198,7 @@ sound's length, and a zero length turns the wait into a runaway loop that drops
 the map (`game/feedingtowera`) or a cinematic that never ends
 (`game/roadhouse`). Mute with `+set s_volume 0` instead.
 
-All seven cases matched between OpenGL and Vulkan on 11 November 2026. The last three were added on 21 November 2026 with the clip plane and game portals. On 22 November 2026 the mirror, the self-facing portal and the glow portal matched again with the alpha-notch clip removed; before that, OpenGL drew neither Tommy nor alpha-tested decals in them.
+All seven cases matched between OpenGL and Vulkan on 11 November 2026. The last three were added on 21 November 2026 with the clip plane and game portals. On 22 November 2026 the mirror, the self-facing portal and the glow portal matched again with the alpha-notch clip removed; before that, OpenGL drew neither Tommy nor alpha-tested decals in them. The side-on portal case was added on 28 November 2026 and checked on both backends.
 
 ## Known gaps
 

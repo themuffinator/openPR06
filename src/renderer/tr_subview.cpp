@@ -311,6 +311,18 @@ bool R_PreciseCullSurface( const drawSurf_t *drawSurf, idBounds &ndcBounds ) {
 
 	R_GlobalPointToLocal( drawSurf->space->modelMatrix, tr.viewDef->renderView.vieworg, localView );
 
+	// Doom 3 drops the whole surface as soon as one triangle faces away, which
+	// suits a flat mirror. Prey's portal models are not flat. The plain ones
+	// (models/mapobjects/portal/portal64x72.ase and its siblings) are a tray
+	// set 16 units back, with side walls that slope inwards, and the glow
+	// portals' portal_innerwarp is a dish 20 units deep. From far enough to one
+	// side the near wall faces away while the rest is in plain view, and the
+	// portal drew black from there (the 64x72 one from 32 units off its axis
+	// plus half the viewer's distance in front). Retail (sub_4efac0) only
+	// skips the triangle when the material is a direct portal.
+	const bool skipBackFacingTriangles = drawSurf->material != NULL
+		&& drawSurf->material->GetSubviewClass() == SC_PORTAL;
+
 	for ( i = 0; i < tri->numIndexes; i += 3 ) {
 		idVec3	dir, normal;
 		float	dot;
@@ -337,6 +349,11 @@ bool R_PreciseCullSurface( const drawSurf_t *drawSurf, idBounds &ndcBounds ) {
 
 			dot = normal * dir;
 			if ( dot >= 0.0f ) {
+				if ( skipBackFacingTriangles ) {
+					// a surface with no front-facing triangle leaves the
+					// bounds cleared and is culled below
+					continue;
+				}
 				return true;
 			}
 		}

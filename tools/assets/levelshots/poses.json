@@ -189,8 +189,7 @@
     "median_px": 0.458,
     "similarity": 0.915
    },
-   "status": "shipped",
-   "note": "The canyon's sky is orange in play (the portal sky as openPR06 draws it); retail's loading art shows it pale blue."
+   "status": "shipped"
   },
   "lotad": {
    "map": "game/lotad",

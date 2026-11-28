@@ -1046,6 +1046,52 @@ is projected from a point 100,000 units away and the map along exactly
 parallel rays; over the 800 or so units that shadow is thrown, the two differ
 by a few units. That is the likely cause and has not been measured.
 
+#### Regression, 28 November: the correction applied twice (openPR06)
+
+Reported on the Land of the Ancients maps: with shadow maps on, every sunlit
+slope carried a pattern of fine bands, and sections of the terrain's shadow
+were missing. Stencil shadows were right.
+
+openQ4 met the same fault on its own maps and repaired it differently. It kept
+the determinant's earlier sign in `R_ShadowMapClipPlanesMirrorWinding` and
+turned the answer in `R_ShadowMapLightMirrorsCasterWinding` for the lights
+that store the far shell, parallel and distant point ("So the map of a distant
+point light stores ... the faces turned towards the light", below). That
+arrived here with the merge through upstream `d21bf7d4f` on 27 November
+(`06d1416b1`). With
+the sign already corrected here, the turn undid the correction for exactly
+those lights: a sun's map kept the light-facing triangles of open geometry
+again. The lit ground was then compared against its own stored depth with the
+small bias a far-shell light keeps, which is the banding, and terrain seen
+from behind stored nothing, which is the missing shadow.
+
+`R_ShadowMapLightMirrorsCasterWinding` now returns what the planes say for
+every projected map, and `R_ShadowMapCasterFacesSelfTest` checks that
+function, not only the plane test, against the rasterizer for a parallel and
+a distant point light. `renderer_vulkan_shadow_compatibility.py` refuses the
+turn. **When merging openQ4, keep both halves as they are here**: the sign
+`determinant > 0` and no turn.
+
+Pixels differing from the stencil picture by more than 8 levels, brighter and
+darker, at Enhanced, 1280x720, one frozen frame per pair:
+
+| View | Before | After |
+| --- | ---: | ---: |
+| lotaa, the central fire pit (`setviewpos 853 -253 124.4 113.5 12`), OpenGL | 7.2% and 42.9% | 0.5% and 1.0% |
+| the same, Vulkan | 7.5% and 45.6% | 0.65% and 1.3% |
+| the same at Quality and Ultra, OpenGL | 7.2% and 41.3%; 7.0% and 43.4% | 0.4% and 1.0%; 0.3% and 0.9% |
+| lotab start, OpenGL | 11.1% and 8.8% | 0.5% and 1.6% |
+| lotad start, OpenGL | 8.7% and 1.5% | 0.3% and 0.2% |
+
+The three lights under lotaa's ground, drawn alone, brighter than stencil:
+the parallel light 23.8% before and 0.07% after, the distant point light
+26.7% and 0.07%, the authored projector 0.3% both times.
+
+A trap met while measuring: the capture runs archive every cvar a variant
+sets. A comparison that ended on `r_shadowMapDistantFarShell 0` and a raised
+polygon offset hid the fault in every later launch of that save folder until
+the settings file was removed before each run.
+
 ### Receiver lighting on OpenGL
 
 Added on 11 November, from a figure in the section above: on OpenGL the test

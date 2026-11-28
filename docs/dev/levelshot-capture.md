@@ -233,7 +233,7 @@ whether the set ships.
 | harvesterb | `12608 -416 3580.25 0 0 0` | 0.37 | none | none |
 | keeperfortress | `84 -160 -46.75 0 90 0` | 0.31 | none | none |
 | lotaa | `2090.25 360.5 365.25 0 200 0` | 0.29 | none | retail shows the spirit-walk arrival overlay; a screen effect the tiles cannot continue, so the set shows the scene beneath it |
-| lotab | `-447.5 791.094 341.583 0 270 0` | 0.46 | none | the canyon's sky is orange in play; retail's art shows it pale blue |
+| lotab | `-447.5 791.094 341.583 0 270 0` | 0.46 | none | none |
 | lotad | `1440 1047.75 368.134 0 270 0` | 0.41 | none | none |
 | salvage | `72 -7779.75 -627.75 0 359.933 0` | 0.43 | player moved away, `func_door_20` closed | `func_door_20` opens as the player spawns beside it; retail shows it shut |
 | salvageboss | `324 -420 836.25 0 90 0` | 0.35 | none | none |
@@ -263,6 +263,22 @@ Multiplayer maps are captured in a single-player session (`devmap` with
 map`, every probe black): its set names a `gameType` in `poses.json`, which
 `solve` and `capture` pass as `si_gameType`, and moves the listen server's
 player out of the view (`dmtopillogical_4`).
+
+### Recaptures
+
+- **lotaa, lotab, lotad, 28 November 2026.** The first sets (20 November) showed
+  sunlit rock where stencil shadows it: the large rock face in `lotaa_right`
+  and the slope in `lotad_right`. A live view of each with the sun's shadow
+  map against stencil now differs in 0.1% of pixels (the regression of
+  27 November and its repair are in `shadowmapping-audit-2026-11-09.md`). The
+  skies also changed: the glow pass has drawn the sky's glow stages since
+  21 November, so lotaa's sky is bright blue, lotad's a brighter pink, and
+  lotab's the pale blue of retail's art, where the first set had it orange.
+  Checked in the game: each map's loading screen captured with
+  `com_captureLoadingScreen 1` (and `com_loadingSkipObscured 0`, for a hidden
+  window) at 1280x720, 1720x720 and 720x960, so every side tile is on screen.
+  No seam shows: the step across each tile edge is within the picture's own
+  line-to-line variation.
 
 ### Held back
 

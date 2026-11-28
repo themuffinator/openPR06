@@ -476,25 +476,31 @@ bool R_ShadowMapClipPlanesMirrorWinding( const idPlane clipPlanes[4] ) {
 	return determinant > 0.0;
 }
 
-// For the two synthesized projections, parallel and distant point, the
-// determinant calls the picture mirrored (their axes come from NormalVectors,
-// a left-handed pair), and the faces a caster pass kept on that verdict were
-// measured to be the reverse of the ones asked for: open geometry stored its
-// light-facing triangles and sealed hulls their far shell
-// (shadowmapping-audit-2026-11-09.md, "What the stock volumes hold"). With
-// the verdict turned, mcc_landing's light_9083 drawn from whole world
-// surfaces goes from 48.9% of a view shadowed where stencil lights to 0.01%,
-// the same as from its prelight caps. Authored projectors keep the
-// determinant, which measures right for them (storage2's alarm lights, hub2's
-// light_7984). With r_shadowMapDistantFarShell 0 the earlier verdict stands.
+// The planes answer for every kind of projected map, the two synthesized ones
+// (parallel and distant point) included: R_ShadowMapClipPlanesMirrorWinding
+// has the sign the rasterizer has, which R_ShadowMapCasterFacesSelfTest checks
+// with a light-facing triangle through each kind of map.
+//
+// OPENPR06: upstream openQ4 keeps the earlier sign in
+// R_ShadowMapClipPlanesMirrorWinding (determinant < 0) and turns the verdict
+// here for a light that stores the far shell (parallel and distant point).
+// openPR06 corrected the sign itself (ba6d681c0), so the turn here undid the
+// correction for exactly those lights: a sun stored the light-facing
+// triangles of open geometry, which showed as a texel-grid pattern over every
+// sunlit slope (the lit ground compared against its own stored depth with the
+// little bias a far-shell light keeps) and as sunlight through terrain seen
+// from behind. Measured in lotaa with a parallel and a distant point light
+// under the one-sided ground: 23.8% and 26.7% of the frame lit where stencil
+// shadows with the turn, 0.1% without; an authored projector 0.3% either way.
+// When merging upstream, keep this function without the turn while
+// R_ShadowMapClipPlanesMirrorWinding returns determinant > 0.
 bool R_ShadowMapLightMirrorsCasterWinding( const viewLight_t *vLight ) {
 	if ( vLight == NULL || R_ClassifyShadowMapLight( vLight ).pointLight ) {
 		return false;
 	}
 	idPlane clipPlanes[4];
 	R_ShadowMapBuildBaseClipPlanesForLight( vLight, clipPlanes );
-	const bool mirrored = R_ShadowMapClipPlanesMirrorWinding( clipPlanes );
-	return R_ShadowMapLightStoresFarShell( vLight ) ? !mirrored : mirrored;
+	return R_ShadowMapClipPlanesMirrorWinding( clipPlanes );
 }
 
 extern idCVar r_shadowMapDistantFarShellBias;
@@ -2126,6 +2132,14 @@ bool R_ShadowMapCasterFacesSelfTest( void ) {
 				|| R_ShadowMapLightFacingTriangleDrawsFront( clipPlanes, parms.origin, toDistantLight ) ) {
 			return false;
 		}
+		// what a caster pass is told about the light is what the rasterizer
+		// does with its base map, whether or not the light stores the far shell
+		R_ShadowMapBuildBaseClipPlanesForLight( &light, clipPlanes );
+		if ( R_ShadowMapLightMirrorsCasterWinding( &light )
+				!= R_ShadowMapLightFacingTriangleDrawsFront( clipPlanes, parms.origin, toDistantLight ) ) {
+			common->Printf( "Caster face self-test FAILED: distant point light winding\n" );
+			return false;
+		}
 		parms.parallel = true;
 		light.parallel = true;
 		// a parallel light shines from the unrotated light_center direction
@@ -2134,6 +2148,11 @@ bool R_ShadowMapCasterFacesSelfTest( void ) {
 		if ( !R_ShadowMapBuildParallelClipPlanes( &light, clipPlanes )
 				|| R_ShadowMapClipPlanesMirrorWinding( clipPlanes )
 				|| R_ShadowMapLightFacingTriangleDrawsFront( clipPlanes, parms.origin, toParallelLight ) ) {
+			return false;
+		}
+		if ( R_ShadowMapLightMirrorsCasterWinding( &light )
+				!= R_ShadowMapLightFacingTriangleDrawsFront( clipPlanes, parms.origin, toParallelLight ) ) {
+			common->Printf( "Caster face self-test FAILED: parallel light winding\n" );
 			return false;
 		}
 		projections += 2;

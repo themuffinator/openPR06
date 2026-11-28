@@ -3273,11 +3273,15 @@ def validate_shadow_contact_and_gl_robustness_contract() -> None:
             "R_ClassifyShadowMapLight( vLight ).pointLight",
             "return false;",
             "R_ShadowMapBuildBaseClipPlanesForLight( vLight, clipPlanes );",
-            "const bool mirrored = R_ShadowMapClipPlanesMirrorWinding( clipPlanes );",
-            "return R_ShadowMapLightStoresFarShell( vLight ) ? !mirrored : mirrored;",
+            "return R_ShadowMapClipPlanesMirrorWinding( clipPlanes );",
         ),
-        "cube faces are cameras; projected maps answer from their own planes, the synthesized ones as measured",
+        "cube faces are cameras; projected maps answer from their own planes, the synthesized ones included",
     )
+    # openPR06 corrected the sign in R_ShadowMapClipPlanesMirrorWinding; upstream
+    # openQ4 instead turns the verdict for far-shell lights. Both together store
+    # the light-facing side of open geometry for every sun (lotaa, 28 November).
+    if "!mirrored" in light_mirror or "R_ShadowMapLightStoresFarShell" in light_mirror:
+        raise AssertionError("R_ShadowMapLightMirrorsCasterWinding must not turn the verdict for far-shell lights")
     faces_selftest = braced_body(
         projected_cpp,
         "bool R_ShadowMapCasterFacesSelfTest(",
@@ -10948,7 +10952,8 @@ def validate_prelight_caster_contract() -> None:
                   "return parms.parallel || R_ShadowMapUsesDistantPointProjection( parms );"):
         require(classification_source, token, "distant and parallel lights store the far shell")
     projected_source = read("src/renderer/ShadowMapProjected.cpp")
-    for token in ("return R_ShadowMapLightStoresFarShell( vLight ) ? !mirrored : mirrored;",
+    for token in ("Caster face self-test FAILED: parallel light winding",
+                  "Caster face self-test FAILED: distant point light winding",
                   "state.receiverBiasScale = scale;", "state.biasScale[cascadeIndex] *= scale;",
                   "state.texelDepthBias[cascadeIndex] *= scale;",
                   "* Max( 0.0f, state.receiverBiasScale );", "Caster face self-test FAILED: far-shell light"):
